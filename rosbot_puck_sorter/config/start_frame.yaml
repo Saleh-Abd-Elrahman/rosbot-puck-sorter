@@ -1,0 +1,4 @@
+map_frame: map
+start_frame: start
+amcl_topic: /amcl_pose
+publish_rate_hz: 15.0

@@ -3,6 +3,7 @@
   <rosparam command="load" file="$(find rosbot_puck_sorter)/config/common.yaml" />
 
   <!-- Node params -->
+  <rosparam command="load" file="$(find rosbot_puck_sorter)/config/start_frame.yaml" ns="start_frame_manager" />
   <rosparam command="load" file="$(find rosbot_puck_sorter)/config/qr_home_mapper.yaml" ns="qr_home_mapper" />
   <rosparam command="load" file="$(find rosbot_puck_sorter)/config/puck_color_hsv.yaml" ns="rgbd_puck_detector" />
   <rosparam command="load" file="$(find rosbot_puck_sorter)/config/rgbd_puck_detector.yaml" ns="rgbd_puck_detector" />
@@ -13,6 +14,7 @@
   <rosparam command="load" file="$(find rosbot_puck_sorter)/config/gripper.yaml" ns="gripper_controller" />
 
   <!-- Assumes camera, lidar, localization, move_base, and base driver are launched elsewhere -->
+  <node pkg="rosbot_puck_sorter" type="start_frame_manager.py" name="start_frame_manager" output="screen" />
   <node pkg="rosbot_puck_sorter" type="qr_home_mapper.py" name="qr_home_mapper" output="screen" />
   <node pkg="rosbot_puck_sorter" type="rgbd_puck_detector.py" name="rgbd_puck_detector" output="screen" />
   <node pkg="rosbot_puck_sorter" type="puck_world_model.py" name="puck_world_model" output="screen" />

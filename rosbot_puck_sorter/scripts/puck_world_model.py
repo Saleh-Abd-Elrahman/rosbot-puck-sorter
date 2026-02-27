@@ -4,9 +4,11 @@ import threading
 from dataclasses import dataclass
 
 import rospy
+import tf2_ros
+import tf2_geometry_msgs  # noqa: F401
 from geometry_msgs.msg import PoseWithCovarianceStamped
-from geometry_msgs.msg import Pose
-from std_msgs.msg import Bool, Header, UInt32
+from geometry_msgs.msg import Pose, PoseStamped
+from std_msgs.msg import Header, UInt32
 from rosbot_puck_sorter.msg import (
     HomeBaseArray,
     PuckDetectionArray,
@@ -46,6 +48,8 @@ class PuckWorldModel:
         self.merge_dist_m = rospy.get_param("~merge_dist_m", 0.10)
         self.reserve_timeout_s = rospy.get_param("~reserve_timeout_s", 30.0)
         self.home_exclusion_radius_m = rospy.get_param("~home_exclusion_radius_m", 0.22)
+        self.start_frame = rospy.get_param("~start_frame", "start")
+        self.publish_start_relative = bool(rospy.get_param("~publish_start_relative", True))
 
         self.tracks = {}
         self.next_track_id = 1
@@ -55,7 +59,11 @@ class PuckWorldModel:
         self.have_robot_pose = False
 
         self.pub_tracks = rospy.Publisher("/puck/tracks", PuckTrackArray, queue_size=10)
+        self.pub_tracks_start = rospy.Publisher("/puck/tracks_start", PuckTrackArray, queue_size=10)
         self.pub_remaining = rospy.Publisher("/puck/remaining_count", UInt32, queue_size=10)
+
+        self.tf_buffer = tf2_ros.Buffer(cache_time=rospy.Duration(10.0))
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
 
         rospy.Subscriber("/puck/detections", PuckDetectionArray, self._detections_cb, queue_size=10)
         rospy.Subscriber("/home_bases", HomeBaseArray, self._homes_cb, queue_size=1)
@@ -100,6 +108,17 @@ class PuckWorldModel:
         pose.position.z = point.z
         pose.orientation.w = 1.0
         return pose
+
+    def _to_start_pose(self, pose_map, stamp):
+        ps = PoseStamped()
+        ps.header.stamp = stamp
+        ps.header.frame_id = "map"
+        ps.pose = pose_map
+        try:
+            out = self.tf_buffer.transform(ps, self.start_frame, timeout=rospy.Duration(0.02))
+            return out.pose
+        except Exception:
+            return None
 
     def _associate(self, color, pose):
         best_id = None
@@ -265,6 +284,8 @@ class PuckWorldModel:
 
             msg = PuckTrackArray()
             msg.header = Header(stamp=now, frame_id="map")
+            msg_start = PuckTrackArray()
+            msg_start.header = Header(stamp=now, frame_id=self.start_frame)
             remaining = 0
             for tr in sorted(self.tracks.values(), key=lambda t: t.track_id):
                 out = PuckTrack()
@@ -280,7 +301,23 @@ class PuckWorldModel:
                 if tr.state == "DETECTED" and tr.confidence >= self.conf_valid_min:
                     remaining += 1
 
+                if self.publish_start_relative:
+                    pose_start = self._to_start_pose(tr.pose_map, now)
+                    if pose_start is not None:
+                        out_start = PuckTrack()
+                        out_start.header = msg_start.header
+                        out_start.track_id = tr.track_id
+                        out_start.color = tr.color
+                        out_start.pose_map = pose_start
+                        out_start.confidence = tr.confidence
+                        out_start.state = tr.state
+                        out_start.miss_count = tr.miss_count
+                        out_start.last_seen = tr.last_seen
+                        msg_start.tracks.append(out_start)
+
             self.pub_tracks.publish(msg)
+            if self.publish_start_relative:
+                self.pub_tracks_start.publish(msg_start)
             self.pub_remaining.publish(UInt32(data=remaining))
 
 

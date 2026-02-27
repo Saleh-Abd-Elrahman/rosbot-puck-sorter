@@ -12,3 +12,5 @@ conf_valid_min: 0.55
 merge_dist_m: 0.10
 reserve_timeout_s: 30.0
 home_exclusion_radius_m: 0.22
+start_frame: start
+publish_start_relative: true

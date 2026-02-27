@@ -11,3 +11,5 @@ min_qr_size_px: 80
 stable_reads_required: 3
 image_topic: /camera/color/image_raw
 camera_info_topic: /camera/color/camera_info
+start_frame: start
+publish_start_relative: true

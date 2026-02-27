@@ -5,8 +5,10 @@ import threading
 import actionlib
 import cv2
 import rospy
+import tf2_ros
+import tf2_geometry_msgs  # noqa: F401
 from cv_bridge import CvBridge
-from geometry_msgs.msg import Pose, Quaternion
+from geometry_msgs.msg import Pose, PoseStamped, Quaternion
 from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
 from sensor_msgs.msg import Image
 from std_msgs.msg import Header
@@ -33,12 +35,18 @@ class QRHomeMapper:
         self.scan_retries = int(rospy.get_param("~scan_retries", 2))
         self.stable_reads_required = int(rospy.get_param("~stable_reads_required", 3))
         self.image_topic = rospy.get_param("~image_topic", "/camera/color/image_raw")
+        self.start_frame = rospy.get_param("~start_frame", "start")
+        self.publish_start_relative = bool(rospy.get_param("~publish_start_relative", True))
 
         self.latest_bgr = None
         self.latest_stamp = rospy.Time(0)
         self.detector = cv2.QRCodeDetector()
 
+        self.tf_buffer = tf2_ros.Buffer(cache_time=rospy.Duration(10.0))
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
+
         self.pub_homes = rospy.Publisher("/home_bases", HomeBaseArray, queue_size=1, latch=True)
+        self.pub_homes_start = rospy.Publisher("/home_bases_start", HomeBaseArray, queue_size=1, latch=True)
         rospy.Subscriber(self.image_topic, Image, self._image_cb, queue_size=1)
 
         self.move_base = actionlib.SimpleActionClient("/move_base", MoveBaseAction)
@@ -131,6 +139,8 @@ class QRHomeMapper:
     def _publish_homes(self):
         msg = HomeBaseArray()
         msg.header = Header(stamp=rospy.Time.now(), frame_id="map")
+        msg_start = HomeBaseArray()
+        msg_start.header = Header(stamp=rospy.Time.now(), frame_id=self.start_frame)
         for color, entry in self.home_map.items():
             h = HomeBase()
             h.header = msg.header
@@ -138,7 +148,25 @@ class QRHomeMapper:
             h.pose_map = entry["pose"]
             h.qr_payload = entry["payload"]
             msg.homes.append(h)
+
+            if self.publish_start_relative:
+                pose_msg = PoseStamped()
+                pose_msg.header.stamp = msg_start.header.stamp
+                pose_msg.header.frame_id = "map"
+                pose_msg.pose = entry["pose"]
+                try:
+                    out = self.tf_buffer.transform(pose_msg, self.start_frame, timeout=rospy.Duration(0.1))
+                    hs = HomeBase()
+                    hs.header = msg_start.header
+                    hs.color = color
+                    hs.pose_map = out.pose
+                    hs.qr_payload = entry["payload"]
+                    msg_start.homes.append(hs)
+                except Exception:
+                    rospy.logwarn_throttle(2.0, "start frame unavailable: could not transform home base to %s", self.start_frame)
         self.pub_homes.publish(msg)
+        if self.publish_start_relative:
+            self.pub_homes_start.publish(msg_start)
 
     def _scan_cb(self, req):
         if not req.start:

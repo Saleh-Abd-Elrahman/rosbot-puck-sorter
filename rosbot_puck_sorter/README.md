@@ -9,6 +9,7 @@ ROS 1 package for color puck sorting with:
 ## Package contents
 
 - `scripts/mission_manager.py`: mission FSM and orchestration
+- `scripts/start_frame_manager.py`: captures initial pose and publishes start-relative frame/topics
 - `scripts/qr_home_mapper.py`: scans 3 corners and maps home colors
 - `scripts/rgbd_puck_detector.py`: HSV + depth based puck detection
 - `scripts/puck_world_model.py`: tracking, target reservation, lifecycle
@@ -22,9 +23,14 @@ ROS 1 package for color puck sorting with:
 ### Published topics
 - `/puck/detections` (`rosbot_puck_sorter/PuckDetectionArray`)
 - `/puck/tracks` (`rosbot_puck_sorter/PuckTrackArray`)
+- `/puck/tracks_start` (`rosbot_puck_sorter/PuckTrackArray`, frame_id=`start`)
 - `/home_bases` (`rosbot_puck_sorter/HomeBaseArray`)
+- `/home_bases_start` (`rosbot_puck_sorter/HomeBaseArray`, frame_id=`start`)
 - `/mission/state` (`rosbot_puck_sorter/MissionState`)
 - `/mission/current_target` (`rosbot_puck_sorter/PuckTrack`)
+- `/start_frame/initialized` (`std_msgs/Bool`)
+- `/start_frame/origin_map` (`geometry_msgs/PoseStamped`)
+- `/robot_pose_start` (`geometry_msgs/PoseStamped`, frame_id=`start`)
 - `/cmd_vel_align`, `/cmd_vel_nav`
 - `/coverage_search/pass_count`
 - `/gripper/state`, `/gripper/holding_object`
@@ -73,9 +79,11 @@ roslaunch rosbot_puck_sorter mission.launch
 3. Tune coverage bounds in `config/coverage_search.yaml`.
 4. Calibrate gripper servo angles and pulse range in `config/gripper.yaml`.
 5. Verify `twist_mux` wiring and ensure only mux output goes to robot `/cmd_vel`.
+6. Keep `config/start_frame.yaml` enabled if you want startup-relative coordinates.
 
 ## Notes
 
 - Red uses two HSV hue ranges (`red1`, `red2`) due hue wraparound in OpenCV.
 - Home bases are stored as full map-frame `Pose` (`x`, `y`, `z` + orientation).
+- Navigation still runs in `map`; start-relative telemetry is published in `start`.
 - Current gripper hold detection is heuristic (no force/current sensor). Add hardware feedback if available.

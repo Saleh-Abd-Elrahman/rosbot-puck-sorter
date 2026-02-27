@@ -47,6 +47,7 @@ Tune these files before first real run:
 - `rosbot_puck_sorter/config/puck_color_hsv.yaml` (color thresholds)
 - `rosbot_puck_sorter/config/coverage_search.yaml` (arena bounds)
 - `rosbot_puck_sorter/config/gripper.yaml` (servo PWM + open/close angles)
+- `rosbot_puck_sorter/config/start_frame.yaml` (startup-relative `start` frame)
 
 ## Project docs
 
