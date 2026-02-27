@@ -1,0 +1,294 @@
+#!/usr/bin/env python3
+import math
+import threading
+from dataclasses import dataclass
+
+import rospy
+from geometry_msgs.msg import PoseWithCovarianceStamped
+from geometry_msgs.msg import Pose
+from std_msgs.msg import Bool, Header, UInt32
+from rosbot_puck_sorter.msg import (
+    HomeBaseArray,
+    PuckDetectionArray,
+    PuckTrack,
+    PuckTrackArray,
+)
+from rosbot_puck_sorter.srv import ReserveTarget, ReserveTargetResponse
+
+
+@dataclass
+class TrackState:
+    track_id: int
+    color: str
+    pose_map: Pose
+    confidence: float
+    state: str
+    miss_count: int
+    last_seen: rospy.Time
+    hits: int
+    reserved_at: rospy.Time
+
+
+class PuckWorldModel:
+    def __init__(self):
+        self.lock = threading.Lock()
+
+        self.update_rate_hz = rospy.get_param("~update_rate_hz", 15.0)
+        self.association_max_dist_m = rospy.get_param("~association_max_dist_m", 0.18)
+        self.confirm_hits_required = int(rospy.get_param("~confirm_hits_required", 3))
+        self.misses_to_lost = int(rospy.get_param("~misses_to_lost", 8))
+        self.track_ttl_s = rospy.get_param("~track_ttl_s", 10.0)
+        self.conf_init = rospy.get_param("~conf_init", 0.40)
+        self.conf_hit_gain = rospy.get_param("~conf_hit_gain", 0.12)
+        self.conf_miss_decay = rospy.get_param("~conf_miss_decay", 0.08)
+        self.conf_max = rospy.get_param("~conf_max", 0.99)
+        self.conf_valid_min = rospy.get_param("~conf_valid_min", 0.55)
+        self.merge_dist_m = rospy.get_param("~merge_dist_m", 0.10)
+        self.reserve_timeout_s = rospy.get_param("~reserve_timeout_s", 30.0)
+        self.home_exclusion_radius_m = rospy.get_param("~home_exclusion_radius_m", 0.22)
+
+        self.tracks = {}
+        self.next_track_id = 1
+        self.homes = {}
+        self.robot_x = 0.0
+        self.robot_y = 0.0
+        self.have_robot_pose = False
+
+        self.pub_tracks = rospy.Publisher("/puck/tracks", PuckTrackArray, queue_size=10)
+        self.pub_remaining = rospy.Publisher("/puck/remaining_count", UInt32, queue_size=10)
+
+        rospy.Subscriber("/puck/detections", PuckDetectionArray, self._detections_cb, queue_size=10)
+        rospy.Subscriber("/home_bases", HomeBaseArray, self._homes_cb, queue_size=1)
+        rospy.Subscriber("/amcl_pose", PoseWithCovarianceStamped, self._amcl_pose_cb, queue_size=10)
+        rospy.Subscriber("/puck_world_model/delivered_track", UInt32, self._delivered_cb, queue_size=10)
+        rospy.Subscriber("/puck_world_model/release_track", UInt32, self._release_cb, queue_size=10)
+
+        self.srv_reserve = rospy.Service("/puck_world_model/reserve_target", ReserveTarget, self._reserve_target)
+        self.timer = rospy.Timer(rospy.Duration(1.0 / max(1e-3, self.update_rate_hz)), self._timer_cb)
+
+        rospy.loginfo("puck_world_model ready")
+
+    def _amcl_pose_cb(self, msg):
+        with self.lock:
+            self.robot_x = msg.pose.pose.position.x
+            self.robot_y = msg.pose.pose.position.y
+            self.have_robot_pose = True
+
+    def _homes_cb(self, msg):
+        with self.lock:
+            self.homes = {}
+            for home in msg.homes:
+                self.homes[home.color] = home.pose_map
+
+    def _distance_pose(self, p1, p2):
+        dx = p1.position.x - p2.position.x
+        dy = p1.position.y - p2.position.y
+        return math.hypot(dx, dy)
+
+    def _near_any_home(self, pose):
+        for home in self.homes.values():
+            dx = pose.position.x - home.position.x
+            dy = pose.position.y - home.position.y
+            if math.hypot(dx, dy) <= self.home_exclusion_radius_m:
+                return True
+        return False
+
+    def _make_pose(self, point):
+        pose = Pose()
+        pose.position.x = point.x
+        pose.position.y = point.y
+        pose.position.z = point.z
+        pose.orientation.w = 1.0
+        return pose
+
+    def _associate(self, color, pose):
+        best_id = None
+        best_dist = 1e9
+        for tid, tr in self.tracks.items():
+            if tr.color != color:
+                continue
+            if tr.state in ("DELIVERED", "LOST"):
+                continue
+            dist = self._distance_pose(tr.pose_map, pose)
+            if dist < self.association_max_dist_m and dist < best_dist:
+                best_id = tid
+                best_dist = dist
+        return best_id
+
+    def _detections_cb(self, msg):
+        with self.lock:
+            now = rospy.Time.now()
+            touched = set()
+            for det in msg.detections:
+                pose = self._make_pose(det.position_map)
+                if self._near_any_home(pose):
+                    continue
+
+                tid = self._associate(det.color, pose)
+                if tid is None:
+                    tid = self.next_track_id
+                    self.next_track_id += 1
+                    self.tracks[tid] = TrackState(
+                        track_id=tid,
+                        color=det.color,
+                        pose_map=pose,
+                        confidence=float(self.conf_init),
+                        state="DETECTED",
+                        miss_count=0,
+                        last_seen=now,
+                        hits=1,
+                        reserved_at=rospy.Time(0),
+                    )
+                else:
+                    tr = self.tracks[tid]
+                    alpha = 0.4
+                    tr.pose_map.position.x = alpha * pose.position.x + (1.0 - alpha) * tr.pose_map.position.x
+                    tr.pose_map.position.y = alpha * pose.position.y + (1.0 - alpha) * tr.pose_map.position.y
+                    tr.pose_map.position.z = alpha * pose.position.z + (1.0 - alpha) * tr.pose_map.position.z
+                    tr.confidence = min(self.conf_max, tr.confidence + self.conf_hit_gain)
+                    tr.miss_count = 0
+                    tr.last_seen = now
+                    tr.hits += 1
+                    if tr.state == "LOST":
+                        tr.state = "DETECTED"
+                    if tr.state == "RESERVED" and (now - tr.reserved_at).to_sec() > self.reserve_timeout_s:
+                        tr.state = "DETECTED"
+
+                touched.add(tid)
+
+            for tid, tr in self.tracks.items():
+                if tid in touched:
+                    continue
+                if tr.state in ("DELIVERED", "LOST"):
+                    continue
+                tr.miss_count += 1
+                tr.confidence = max(0.0, tr.confidence - self.conf_miss_decay)
+                if tr.miss_count >= self.misses_to_lost:
+                    tr.state = "LOST"
+
+    def _delivered_cb(self, msg):
+        with self.lock:
+            tr = self.tracks.get(msg.data)
+            if tr:
+                tr.state = "DELIVERED"
+                tr.confidence = 0.0
+
+    def _release_cb(self, msg):
+        with self.lock:
+            tr = self.tracks.get(msg.data)
+            if tr and tr.state == "RESERVED":
+                tr.state = "DETECTED"
+
+    def _select_candidate(self, strategy):
+        candidates = []
+        for tr in self.tracks.values():
+            if tr.state != "DETECTED":
+                continue
+            if tr.confidence < self.conf_valid_min:
+                continue
+            candidates.append(tr)
+
+        if not candidates:
+            return None
+
+        if strategy == "highest_confidence":
+            candidates.sort(key=lambda t: t.confidence, reverse=True)
+        else:
+            if self.have_robot_pose:
+                candidates.sort(
+                    key=lambda t: math.hypot(t.pose_map.position.x - self.robot_x, t.pose_map.position.y - self.robot_y)
+                )
+            else:
+                candidates.sort(key=lambda t: math.hypot(t.pose_map.position.x, t.pose_map.position.y))
+
+        return candidates[0]
+
+    def _reserve_target(self, req):
+        with self.lock:
+            tr = self._select_candidate(req.strategy)
+            if tr is None:
+                return ReserveTargetResponse(
+                    success=False,
+                    track_id=0,
+                    color="",
+                    pose_map=Pose(),
+                    message="no target available",
+                )
+
+            tr.state = "RESERVED"
+            tr.reserved_at = rospy.Time.now()
+            return ReserveTargetResponse(
+                success=True,
+                track_id=tr.track_id,
+                color=tr.color,
+                pose_map=tr.pose_map,
+                message="reserved",
+            )
+
+    def _timer_cb(self, _event):
+        with self.lock:
+            now = rospy.Time.now()
+            for tr in self.tracks.values():
+                if tr.state == "RESERVED" and (now - tr.reserved_at).to_sec() > self.reserve_timeout_s:
+                    tr.state = "DETECTED"
+                if tr.state in ("DELIVERED",):
+                    continue
+                if (now - tr.last_seen).to_sec() > self.track_ttl_s and tr.state != "RESERVED":
+                    tr.state = "LOST"
+
+            # Merge duplicates conservatively.
+            ids = sorted(self.tracks.keys())
+            removed = set()
+            for i in range(len(ids)):
+                a_id = ids[i]
+                if a_id in removed or a_id not in self.tracks:
+                    continue
+                a = self.tracks[a_id]
+                if a.state in ("DELIVERED", "LOST"):
+                    continue
+                for j in range(i + 1, len(ids)):
+                    b_id = ids[j]
+                    if b_id in removed or b_id not in self.tracks:
+                        continue
+                    b = self.tracks[b_id]
+                    if b.color != a.color:
+                        continue
+                    if b.state in ("DELIVERED", "LOST"):
+                        continue
+                    if self._distance_pose(a.pose_map, b.pose_map) <= self.merge_dist_m:
+                        keep, drop = (a_id, b_id) if a.confidence >= b.confidence else (b_id, a_id)
+                        removed.add(drop)
+                        self.tracks[keep].confidence = max(self.tracks[keep].confidence, self.tracks[drop].confidence)
+
+            for rid in removed:
+                self.tracks.pop(rid, None)
+
+            msg = PuckTrackArray()
+            msg.header = Header(stamp=now, frame_id="map")
+            remaining = 0
+            for tr in sorted(self.tracks.values(), key=lambda t: t.track_id):
+                out = PuckTrack()
+                out.header = msg.header
+                out.track_id = tr.track_id
+                out.color = tr.color
+                out.pose_map = tr.pose_map
+                out.confidence = tr.confidence
+                out.state = tr.state
+                out.miss_count = tr.miss_count
+                out.last_seen = tr.last_seen
+                msg.tracks.append(out)
+                if tr.state == "DETECTED" and tr.confidence >= self.conf_valid_min:
+                    remaining += 1
+
+            self.pub_tracks.publish(msg)
+            self.pub_remaining.publish(UInt32(data=remaining))
+
+
+def main():
+    rospy.init_node("puck_world_model")
+    PuckWorldModel()
+    rospy.spin()
+
+
+if __name__ == "__main__":
+    main()

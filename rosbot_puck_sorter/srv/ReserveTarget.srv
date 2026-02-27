@@ -1,0 +1,7 @@
+string strategy
+---
+bool success
+uint32 track_id
+string color
+geometry_msgs/Pose pose_map
+string message

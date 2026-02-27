@@ -1,0 +1,10 @@
+control_rate_hz: 20.0
+kp_yaw: 0.005
+kp_fwd: 0.0025
+max_ang_vel_rad_s: 0.7
+max_lin_vel_m_s: 0.12
+yaw_deadband_px: 8
+depth_deadband_m: 0.015
+target_depth_m: 0.18
+success_hold_s: 0.4
+cmd_timeout_s: 0.3

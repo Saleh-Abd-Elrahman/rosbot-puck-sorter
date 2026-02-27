@@ -1,0 +1,11 @@
+pwm_driver: pigpio
+pwm_channel: 0
+pwm_frequency_hz: 50
+min_pulse_us: 500
+max_pulse_us: 2500
+open_angle_deg: 20.0
+close_angle_deg: 95.0
+command_timeout_s: 1.0
+settle_time_s: 0.4
+invert_direction: false
+open_on_shutdown: true

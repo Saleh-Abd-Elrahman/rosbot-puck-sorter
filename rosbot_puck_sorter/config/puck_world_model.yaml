@@ -1,0 +1,14 @@
+update_rate_hz: 15.0
+association_max_dist_m: 0.18
+association_max_dt_s: 1.0
+confirm_hits_required: 3
+misses_to_lost: 8
+track_ttl_s: 10.0
+conf_init: 0.40
+conf_hit_gain: 0.12
+conf_miss_decay: 0.08
+conf_max: 0.99
+conf_valid_min: 0.55
+merge_dist_m: 0.10
+reserve_timeout_s: 30.0
+home_exclusion_radius_m: 0.22

@@ -1,0 +1,12 @@
+pregrasp_offset_m: 0.25
+final_approach_m: 0.12
+align_timeout_s: 6.0
+grasp_close_wait_s: 0.6
+place_open_wait_s: 0.5
+retreat_distance_m: 0.20
+goal_xy_tolerance_m: 0.10
+goal_yaw_tolerance_rad: 0.18
+clear_costmap_on_nav_fail: true
+stage_retry_count: 2
+pickup_verify_mode: vision_plus_servo
+pickup_verify_timeout_s: 1.5

@@ -1,0 +1,11 @@
+rect_x_min: 0.0
+rect_x_max: 5.0
+rect_y_min: 0.0
+rect_y_max: 4.0
+border_margin_m: 0.25
+lane_spacing_m: 0.45
+waypoint_reached_tol_m: 0.15
+use_fixed_yaw: false
+yaw_at_waypoint_rad: 0.0
+scan_dwell_s: 1.0
+max_passes_before_finish_check: 2
