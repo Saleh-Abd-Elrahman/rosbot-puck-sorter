@@ -7,6 +7,7 @@ import cv2
 import rospy
 import tf2_ros
 import tf2_geometry_msgs  # noqa: F401
+from actionlib_msgs.msg import GoalStatus
 from cv_bridge import CvBridge
 from geometry_msgs.msg import Pose, PoseStamped, Quaternion
 from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
@@ -30,7 +31,10 @@ class QRHomeMapper:
         self.bridge = CvBridge()
 
         self.corner_waypoints = rospy.get_param("~corner_waypoints", [])
+        self.marker_mode = str(rospy.get_param("~marker_mode", "aruco")).strip().lower()
         self.qr_expected_codes = set(rospy.get_param("~qr_expected_codes", ["HOME_RED", "HOME_GREEN", "HOME_BLUE"]))
+        self.aruco_dictionary_name = rospy.get_param("~aruco_dictionary", "DICT_4X4_50")
+        self.aruco_id_to_color = self._load_aruco_color_map(rospy.get_param("~aruco_id_to_color", {"0": "red", "1": "green", "2": "blue"}))
         self.scan_timeout_s = rospy.get_param("~scan_timeout_s", 12.0)
         self.scan_retries = int(rospy.get_param("~scan_retries", 2))
         self.stable_reads_required = int(rospy.get_param("~stable_reads_required", 3))
@@ -41,6 +45,10 @@ class QRHomeMapper:
         self.latest_bgr = None
         self.latest_stamp = rospy.Time(0)
         self.detector = cv2.QRCodeDetector()
+        self.aruco_dict = None
+        self.aruco_detector = None
+        self.aruco_params = None
+        self._init_aruco_detector()
 
         self.tf_buffer = tf2_ros.Buffer(cache_time=rospy.Duration(10.0))
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
@@ -57,6 +65,42 @@ class QRHomeMapper:
         self.service = rospy.Service("/scan_homes", ScanHomes, self._scan_cb)
 
         rospy.loginfo("qr_home_mapper ready")
+
+    def _load_aruco_color_map(self, raw_map):
+        out = {}
+        for k, v in raw_map.items():
+            try:
+                mk = int(k)
+            except Exception:
+                continue
+            color = str(v).strip().lower()
+            if color in ("red", "green", "blue"):
+                out[mk] = color
+        return out
+
+    def _init_aruco_detector(self):
+        if self.marker_mode != "aruco":
+            return
+        if not hasattr(cv2, "aruco"):
+            rospy.logerr("marker_mode=aruco but OpenCV aruco module is unavailable")
+            return
+
+        dict_id = getattr(cv2.aruco, self.aruco_dictionary_name, None)
+        if dict_id is None:
+            rospy.logwarn("unknown aruco dictionary %s, falling back to DICT_4X4_50", self.aruco_dictionary_name)
+            dict_id = cv2.aruco.DICT_4X4_50
+
+        self.aruco_dict = cv2.aruco.getPredefinedDictionary(dict_id)
+
+        if hasattr(cv2.aruco, "DetectorParameters"):
+            self.aruco_params = cv2.aruco.DetectorParameters()
+        else:
+            self.aruco_params = cv2.aruco.DetectorParameters_create()
+
+        if hasattr(cv2.aruco, "ArucoDetector"):
+            self.aruco_detector = cv2.aruco.ArucoDetector(self.aruco_dict, self.aruco_params)
+        else:
+            self.aruco_detector = None
 
     def _image_cb(self, msg):
         try:
@@ -87,9 +131,11 @@ class QRHomeMapper:
 
         self.move_base.send_goal(goal)
         finished = self.move_base.wait_for_result(rospy.Duration(45.0))
-        return finished
+        if not finished:
+            return False
+        return self.move_base.get_state() == GoalStatus.SUCCEEDED
 
-    def _read_qr(self):
+    def _read_qr_markers(self):
         with self.lock:
             if self.latest_bgr is None:
                 return []
@@ -108,33 +154,70 @@ class QRHomeMapper:
             if single:
                 payloads.append(single.strip())
 
-        return payloads
+        out = []
+        for payload in payloads:
+            color = self._payload_to_color(payload)
+            if not color:
+                continue
+            out.append({"id": payload, "payload": payload, "color": color})
+        return out
 
-    def _scan_corner(self, remaining_payloads):
-        stable_payload = ""
+    def _read_aruco_markers(self):
+        with self.lock:
+            if self.latest_bgr is None:
+                return []
+            frame = self.latest_bgr.copy()
+
+        if self.aruco_dict is None:
+            return []
+
+        if self.aruco_detector is not None:
+            _corners, ids, _rejected = self.aruco_detector.detectMarkers(frame)
+        else:
+            _corners, ids, _rejected = cv2.aruco.detectMarkers(frame, self.aruco_dict, parameters=self.aruco_params)
+
+        out = []
+        if ids is None:
+            return out
+
+        for marker_id in ids.flatten().tolist():
+            color = self.aruco_id_to_color.get(int(marker_id))
+            if not color:
+                continue
+            out.append({"id": f"ARUCO_{int(marker_id)}", "payload": f"ARUCO_{int(marker_id)}", "color": color})
+        return out
+
+    def _read_markers(self):
+        if self.marker_mode == "aruco":
+            return self._read_aruco_markers()
+        return self._read_qr_markers()
+
+    def _scan_corner(self, remaining_colors):
+        stable_id = ""
         stable_count = 0
         end_t = rospy.Time.now() + rospy.Duration(self.scan_timeout_s)
 
         while rospy.Time.now() < end_t and not rospy.is_shutdown():
-            payloads = self._read_qr()
-            matches = [p for p in payloads if p in remaining_payloads]
+            detections = self._read_markers()
+            matches = [d for d in detections if d["color"] in remaining_colors]
             if matches:
-                payload = matches[0]
-                if payload == stable_payload:
+                det = matches[0]
+                det_id = det["id"]
+                if det_id == stable_id:
                     stable_count += 1
                 else:
-                    stable_payload = payload
+                    stable_id = det_id
                     stable_count = 1
 
                 if stable_count >= self.stable_reads_required:
-                    return payload
+                    return det
             else:
-                stable_payload = ""
+                stable_id = ""
                 stable_count = 0
 
             rospy.sleep(0.10)
 
-        return ""
+        return None
 
     def _publish_homes(self):
         msg = HomeBaseArray()
@@ -175,7 +258,16 @@ class QRHomeMapper:
         if len(self.corner_waypoints) < 3:
             return ScanHomesResponse(success=False, message="corner_waypoints must contain 3 entries")
 
-        remaining_payloads = set(self.qr_expected_codes)
+        if self.marker_mode == "aruco":
+            expected_colors = set(self.aruco_id_to_color.values())
+            if not expected_colors:
+                return ScanHomesResponse(success=False, message="aruco_id_to_color is empty or invalid")
+        else:
+            expected_colors = set([self._payload_to_color(code) for code in self.qr_expected_codes if self._payload_to_color(code)])
+            if not expected_colors:
+                return ScanHomesResponse(success=False, message="qr_expected_codes has no parseable colors")
+
+        remaining_colors = set(expected_colors)
         self.home_map = {}
 
         for i, wp in enumerate(self.corner_waypoints[:3]):
@@ -187,21 +279,16 @@ class QRHomeMapper:
             if not moved:
                 return ScanHomesResponse(success=False, message=f"failed to navigate to corner {i}")
 
-            payload = ""
+            detection = None
             for _ in range(self.scan_retries + 1):
-                payload = self._scan_corner(remaining_payloads)
-                if payload:
+                detection = self._scan_corner(remaining_colors)
+                if detection is not None:
                     break
 
-            if not payload:
-                return ScanHomesResponse(success=False, message=f"failed to scan QR at corner {i}")
+            if detection is None:
+                return ScanHomesResponse(success=False, message=f"failed to scan marker at corner {i}")
 
-            if payload not in self.qr_expected_codes:
-                return ScanHomesResponse(success=False, message=f"unexpected payload {payload}")
-
-            color = self._payload_to_color(payload)
-            if not color:
-                return ScanHomesResponse(success=False, message=f"could not parse color from {payload}")
+            color = detection["color"]
             if color in self.home_map:
                 return ScanHomesResponse(success=False, message=f"duplicate color {color} detected")
 
@@ -210,8 +297,8 @@ class QRHomeMapper:
             pose.position.y = y
             pose.position.z = 0.0
             pose.orientation = yaw_to_quat(yaw)
-            self.home_map[color] = {"pose": pose, "payload": payload}
-            remaining_payloads.discard(payload)
+            self.home_map[color] = {"pose": pose, "payload": detection["payload"]}
+            remaining_colors.discard(color)
 
         if len(self.home_map) != 3:
             return ScanHomesResponse(success=False, message="did not map all 3 homes")

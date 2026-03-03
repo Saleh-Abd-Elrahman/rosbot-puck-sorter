@@ -1,7 +1,7 @@
 # ROSbot Puck Sorter (ROS 1 Noetic)
 
 This repository contains a ROS 1 project for a ROSbot that:
-- scans QR-coded home bases (`red`, `green`, `blue`) at arena corners
+- scans ArUco-marked home bases (`red`, `green`, `blue`) at arena corners
 - detects colored pucks with an RGB-D camera
 - picks and places each puck into the matching home using a servo gripper
 - keeps surveying while running to determine when sorting is complete
@@ -48,6 +48,18 @@ Tune these files before first real run:
 - `rosbot_puck_sorter/config/coverage_search.yaml` (arena bounds)
 - `rosbot_puck_sorter/config/gripper.yaml` (servo PWM + open/close angles)
 - `rosbot_puck_sorter/config/start_frame.yaml` (startup-relative `start` frame)
+
+For ArUco markers, set `aruco_dictionary` and `aruco_id_to_color` in
+`rosbot_puck_sorter/config/qr_home_mapper.yaml`.
+
+## Tests
+
+Run module-level tests:
+
+```bash
+cd ~/catkin_ws/src/<repo>/rosbot_puck_sorter/tests
+./run_module_tests.sh
+```
 
 ## Project docs
 
