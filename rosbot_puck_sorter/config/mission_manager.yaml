@@ -1,6 +1,16 @@
 rate_hz: 10.0
-target_policy: nearest_reachable
+startup_survey_required: true
+startup_survey_must_succeed: true
+validate_startup_data: true
+min_startup_homes: 3
+startup_validation_timeout_s: 2.5
+skip_corner_scan_if_startup_valid: true
+
+target_policy: cost_optimal
 replan_if_better_target: true
+single_puck_per_color: true
+expected_colors: [red, green, blue]
+require_all_expected_colors: true
 max_pick_attempts_per_track: 3
 blacklist_duration_s: 20.0
 verification_empty_time_s: 20.0
@@ -9,3 +19,24 @@ mission_timeout_s: 1800.0
 home_scan_required: true
 track_confidence_min: 0.55
 gripper_holding_topic: /gripper/holding_object
+
+search_trigger_s: 4.0
+
+use_make_plan_cost: true
+make_plan_service: /move_base/make_plan
+make_plan_tolerance: 0.1
+
+lookahead_top_k: 4
+lookahead_weight: 0.6
+confidence_penalty_weight: 0.8
+attempt_penalty_weight: 0.8
+wall_penalty_weight: 0.8
+wall_penalty_distance_m: 0.25
+turn_penalty_weight: 0.25
+
+rect_x_min: 0.0
+rect_x_max: 5.0
+rect_y_min: 0.0
+rect_y_max: 4.0
+map_frame: map
+base_frame: base_link

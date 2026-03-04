@@ -14,6 +14,15 @@ scan_timeout_s: 12.0
 scan_retries: 2
 yaw_tolerance_rad: 0.20
 min_qr_size_px: 80
+marker_size_m: 0.05
+min_aruco_perimeter_px: 80.0
+max_marker_distance_m: 0.0
+use_camera_info_intrinsics: true
+fx: 0.0
+fy: 0.0
+cx: 0.0
+cy: 0.0
+hfov_deg: 70.0
 stable_reads_required: 3
 image_topic: /camera/color/image_raw
 camera_info_topic: /camera/color/camera_info

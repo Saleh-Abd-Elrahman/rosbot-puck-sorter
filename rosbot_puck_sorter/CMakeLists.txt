@@ -69,6 +69,8 @@ catkin_package(
 catkin_install_python(PROGRAMS
   scripts/mission_manager.py
   scripts/start_frame_manager.py
+  scripts/startup_survey.py
+  scripts/semantic_grid_mapper.py
   scripts/qr_home_mapper.py
   scripts/rgbd_puck_detector.py
   scripts/puck_world_model.py

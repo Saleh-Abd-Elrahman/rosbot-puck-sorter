@@ -34,7 +34,9 @@ def main():
     rospy.init_node("test_mission_manager")
 
     rospy.set_param("~rate_hz", 20.0)
+    rospy.set_param("~startup_survey_required", False)
     rospy.set_param("~home_scan_required", False)
+    rospy.set_param("~single_puck_per_color", False)
     rospy.set_param("~verification_empty_time_s", 0.2)
     rospy.set_param("~empty_passes_required", 0)
     rospy.set_param("~mission_timeout_s", 5.0)

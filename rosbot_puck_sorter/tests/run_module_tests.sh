@@ -10,6 +10,7 @@ TESTS=(
   "test_puck_world_model.py"
   "test_gripper_controller.py"
   "test_coverage_search.py"
+  "test_semantic_grid_mapper.py"
   "test_pick_place_server.py"
   "test_mission_manager.py"
 )

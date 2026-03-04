@@ -199,6 +199,20 @@ class PuckWorldModel:
                 tr.state = "DETECTED"
 
     def _select_candidate(self, strategy):
+        if isinstance(strategy, str) and strategy.startswith("id:"):
+            try:
+                req_id = int(strategy.split(":", 1)[1])
+            except Exception:
+                req_id = -1
+            tr = self.tracks.get(req_id)
+            if tr is None:
+                return None
+            if tr.state != "DETECTED":
+                return None
+            if tr.confidence < self.conf_valid_min:
+                return None
+            return tr
+
         candidates = []
         for tr in self.tracks.values():
             if tr.state != "DETECTED":

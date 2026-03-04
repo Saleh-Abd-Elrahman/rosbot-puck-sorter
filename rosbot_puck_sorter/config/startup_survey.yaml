@@ -1,0 +1,36 @@
+start_frame: start
+image_topic: /camera/color/image_raw
+camera_info_topic: /camera/color/camera_info
+puck_detection_topic: /puck/detections
+cmd_topic: /cmd_vel_nav
+
+marker_mode: aruco
+aruco_dictionary: DICT_4X4_50
+aruco_id_to_color:
+  "0": red
+  "1": green
+  "2": blue
+marker_size_m: 0.05
+min_aruco_perimeter_px: 80.0
+max_marker_distance_m: 0.0
+
+use_camera_info_intrinsics: true
+fx: 0.0
+fy: 0.0
+cx: 0.0
+cy: 0.0
+hfov_deg: 70.0
+
+rotation_rad: 6.35
+rotation_speed_rad_s: 0.45
+cmd_rate_hz: 20.0
+max_duration_s: 30.0
+stable_reads_required: 3
+min_home_colors_required: 3
+
+puck_conf_min: 0.45
+puck_cluster_radius_m: 0.15
+
+require_start_frame_initialized: true
+start_frame_wait_s: 8.0
+snapshot_path: ~/.ros/rosbot_puck_sorter_startup_survey.json

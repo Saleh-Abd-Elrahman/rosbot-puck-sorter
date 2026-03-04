@@ -3,8 +3,10 @@
 This repository contains a ROS 1 project for a ROSbot that:
 - scans ArUco-marked home bases (`red`, `green`, `blue`) at arena corners
 - detects colored pucks with an RGB-D camera
-- picks and places each puck into the matching home using a servo gripper
+- picks and places one puck per color into the matching home using a servo gripper
 - keeps surveying while running to determine when sorting is complete
+- runs a startup 360-degree in-place survey to capture initial home/puck observations
+- builds a start-frame occupancy grid plus semantic object layer (`homes` and `pucks`)
 
 The ROS package is in:
 - `rosbot_puck_sorter/`
