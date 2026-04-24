@@ -1,5 +1,9 @@
 <launch>
-  <include file="$(find rosbot_puck_sorter)/launch/bringup.launch" />
+  <arg name="enable_gripper_controller" default="true" />
+
+  <include file="$(find rosbot_puck_sorter)/launch/bringup.launch" >
+    <arg name="enable_gripper_controller" value="$(arg enable_gripper_controller)" />
+  </include>
 
   <rosparam command="load" file="$(find rosbot_puck_sorter)/config/mission_manager.yaml" ns="mission_manager" />
   <node pkg="rosbot_puck_sorter" type="mission_manager.py" name="mission_manager" output="screen" />

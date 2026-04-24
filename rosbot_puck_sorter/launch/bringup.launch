@@ -1,4 +1,6 @@
 <launch>
+  <arg name="enable_gripper_controller" default="true" />
+
   <!-- Core shared params -->
   <rosparam command="load" file="$(find rosbot_puck_sorter)/config/common.yaml" />
 
@@ -23,7 +25,7 @@
   <node pkg="rosbot_puck_sorter" type="rgbd_puck_detector.py" name="rgbd_puck_detector" output="screen" />
   <node pkg="rosbot_puck_sorter" type="puck_world_model.py" name="puck_world_model" output="screen" />
   <node pkg="rosbot_puck_sorter" type="coverage_search.py" name="coverage_search" output="screen" />
-  <node pkg="rosbot_puck_sorter" type="gripper_controller.py" name="gripper_controller" output="screen" />
+  <node if="$(arg enable_gripper_controller)" pkg="rosbot_puck_sorter" type="gripper_controller.py" name="gripper_controller" output="screen" />
   <node pkg="rosbot_puck_sorter" type="fine_align_controller.py" name="fine_align_controller" output="screen" />
   <node pkg="rosbot_puck_sorter" type="pick_place_server.py" name="pick_place_server" output="screen" />
 </launch>
