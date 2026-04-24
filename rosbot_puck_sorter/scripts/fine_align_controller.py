@@ -18,7 +18,7 @@ class FineAlignController:
         self.kp_fwd = rospy.get_param("~kp_fwd", 0.0025)
         self.max_ang_vel = rospy.get_param("~max_ang_vel_rad_s", 0.7)
         self.max_lin_vel = rospy.get_param("~max_lin_vel_m_s", 0.12)
-        self.yaw_deadband_m = rospy.get_param("~yaw_deadband_m", 0.02)
+        self.yaw_deadband_m = rospy.get_param("~yaw_deadband_m", rospy.get_param("~yaw_deadband_px", 0.02))
         self.depth_deadband_m = rospy.get_param("~depth_deadband_m", 0.015)
         self.target_depth_m = rospy.get_param("~target_depth_m", 0.18)
         self.success_hold_s = rospy.get_param("~success_hold_s", 0.4)
@@ -91,7 +91,7 @@ class FineAlignController:
 
             cmd = Twist()
             cmd.angular.z = max(-self.max_ang_vel, min(self.max_ang_vel, -self.kp_yaw * lateral_err))
-            cmd.linear.x = max(-self.max_lin_vel, min(self.max_lin_vel, self.kp_fwd * (-depth_err)))
+            cmd.linear.x = max(-self.max_lin_vel, min(self.max_lin_vel, self.kp_fwd * depth_err))
 
             # Avoid backing up in close-range fine alignment.
             if cmd.linear.x < 0.0:

@@ -116,6 +116,9 @@ class RGBDPuckDetector:
             return x, y, z
 
     def _to_map(self, cam_frame, x, y, z, stamp):
+        if cam_frame == self.map_frame:
+            return Point(x=x, y=y, z=z)
+
         ps = PointStamped()
         ps.header.stamp = stamp
         ps.header.frame_id = cam_frame
@@ -124,8 +127,9 @@ class RGBDPuckDetector:
         try:
             out = self.tf_buffer.transform(ps, self.map_frame, timeout=rospy.Duration(0.08))
             return out.point
-        except Exception:
-            return Point(x=x, y=y, z=z)
+        except Exception as exc:
+            rospy.logwarn_throttle(2.0, "skipping puck detection; no TF %s -> %s: %s", cam_frame, self.map_frame, exc)
+            return None
 
     def _rgbd_cb(self, rgb_msg, depth_msg):
         try:
@@ -185,6 +189,8 @@ class RGBDPuckDetector:
                     continue
 
                 point_map = self._to_map(rgb_msg.header.frame_id, x_cam, y_cam, z_cam, rgb_msg.header.stamp)
+                if point_map is None:
+                    continue
 
                 det = PuckDetection()
                 det.header = rgb_msg.header

@@ -45,6 +45,7 @@ class MissionManager:
         self.mission_timeout_s = rospy.get_param("~mission_timeout_s", 1800.0)
         self.home_scan_required = bool(rospy.get_param("~home_scan_required", True))
         self.track_confidence_min = rospy.get_param("~track_confidence_min", 0.55)
+        self.gripper_holding_topic = rospy.get_param("~gripper_holding_topic", "/gripper/holding_object")
         self.search_trigger_s = float(rospy.get_param("~search_trigger_s", 4.0))
 
         self.use_make_plan_cost = bool(rospy.get_param("~use_make_plan_cost", True))
@@ -105,7 +106,7 @@ class MissionManager:
         rospy.Subscriber("/startup_survey/pucks_start", PuckTrackArray, self._startup_pucks_cb, queue_size=1)
         rospy.Subscriber("/puck/tracks", PuckTrackArray, self._tracks_cb, queue_size=10)
         rospy.Subscriber("/coverage_search/pass_count", Int32, self._pass_cb, queue_size=10)
-        rospy.Subscriber("/gripper/holding_object", Bool, self._holding_cb, queue_size=10)
+        rospy.Subscriber(self.gripper_holding_topic, Bool, self._holding_cb, queue_size=10)
         rospy.Subscriber("/amcl_pose", rospy.AnyMsg, self._amcl_pose_any_cb, queue_size=1)
 
         rospy.wait_for_service("/puck_world_model/reserve_target")

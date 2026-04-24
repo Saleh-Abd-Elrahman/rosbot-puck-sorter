@@ -2,7 +2,9 @@
 import math
 
 import rospy
-from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
+import tf2_geometry_msgs  # noqa: F401
+import tf2_ros
+from geometry_msgs.msg import PointStamped, PoseStamped, PoseWithCovarianceStamped
 from std_msgs.msg import Bool
 
 from common import load_script_module, safe_shutdown, wait_for, yaw_to_quat
@@ -18,6 +20,8 @@ def main():
 
     module = load_script_module("start_frame_manager.py", "start_frame_manager_test_mod")
     module.StartFrameManager()
+    tf_buffer = tf2_ros.Buffer(cache_time=rospy.Duration(2.0))
+    tf2_ros.TransformListener(tf_buffer)
 
     pub_amcl = rospy.Publisher("/amcl_pose", PoseWithCovarianceStamped, queue_size=10)
 
@@ -71,6 +75,17 @@ def main():
     yaw = 2.0 * math.atan2(msg.pose.orientation.z, msg.pose.orientation.w)
     if abs(yaw) > 0.1:
         raise RuntimeError(f"unexpected relative yaw: {yaw:.3f}")
+
+    pt_map = PointStamped()
+    pt_map.header.stamp = rospy.Time(0)
+    pt_map.header.frame_id = "map"
+    pt_map.point.x = 1.5
+    pt_map.point.y = 2.3
+    pt_map.point.z = 0.0
+
+    pt_start = tf_buffer.transform(pt_map, "start", timeout=rospy.Duration(1.0))
+    if abs(pt_start.point.x - 0.5) > 0.08 or abs(pt_start.point.y - 0.3) > 0.08:
+        raise RuntimeError(f"unexpected TF start point: x={pt_start.point.x:.3f}, y={pt_start.point.y:.3f}")
 
     print("PASS: start frame initialization and relative pose test")
     safe_shutdown()

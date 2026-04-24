@@ -60,16 +60,12 @@ class StartFrameManager:
         tf_msg.header.frame_id = self.map_frame
         tf_msg.child_frame_id = self.start_frame
 
-        c = math.cos(self.start_yaw)
-        s = math.sin(self.start_yaw)
-
-        # map -> start transform (inverse of start pose in map frame)
-        tf_msg.transform.translation.x = -(c * self.start_x + s * self.start_y)
-        tf_msg.transform.translation.y = (s * self.start_x - c * self.start_y)
-        tf_msg.transform.translation.z = -self.start_z
-
-        q = quat_from_yaw(-self.start_yaw)
-        tf_msg.transform.rotation = q
+        # TF stores the child frame pose in the parent frame. TF consumers apply
+        # the inverse automatically when transforming map-frame points into start.
+        tf_msg.transform.translation.x = self.start_x
+        tf_msg.transform.translation.y = self.start_y
+        tf_msg.transform.translation.z = self.start_z
+        tf_msg.transform.rotation = quat_from_yaw(self.start_yaw)
 
         self.tf_broadcaster.sendTransform(tf_msg)
 
