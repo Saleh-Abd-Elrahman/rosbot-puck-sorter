@@ -7,7 +7,6 @@ find_package(catkin REQUIRED COMPONENTS
   geometry_msgs
   sensor_msgs
   nav_msgs
-  move_base_msgs
   std_srvs
   tf2_ros
   tf2_geometry_msgs
@@ -55,7 +54,6 @@ catkin_package(
     geometry_msgs
     sensor_msgs
     nav_msgs
-    move_base_msgs
     std_srvs
     tf2_ros
     tf2_geometry_msgs
@@ -72,6 +70,7 @@ catkin_install_python(PROGRAMS
   scripts/startup_survey.py
   scripts/semantic_grid_mapper.py
   scripts/qr_home_mapper.py
+  scripts/simple_pose_navigator.py
   scripts/rgbd_puck_detector.py
   scripts/puck_world_model.py
   scripts/coverage_search.py

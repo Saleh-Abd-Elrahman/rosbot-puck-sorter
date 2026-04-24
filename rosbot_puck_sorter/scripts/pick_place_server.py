@@ -3,21 +3,13 @@ import math
 
 import actionlib
 import rospy
-from actionlib_msgs.msg import GoalStatus
-from geometry_msgs.msg import PoseWithCovarianceStamped, Quaternion, Twist
-from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
+from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
 from std_msgs.msg import Bool, UInt32
 from std_srvs.srv import Trigger
 
 from rosbot_puck_sorter.msg import PickAndPlaceAction, PickAndPlaceFeedback, PickAndPlaceResult, PuckTrack
 from rosbot_puck_sorter.srv import SetGripper
-
-
-def yaw_to_quat(yaw):
-    q = Quaternion()
-    q.z = math.sin(yaw / 2.0)
-    q.w = math.cos(yaw / 2.0)
-    return q
+from simple_pose_navigator import SimplePoseNavigator
 
 
 class PickPlaceServer:
@@ -31,9 +23,7 @@ class PickPlaceServer:
         self.stage_retry_count = int(rospy.get_param("~stage_retry_count", 2))
         self.use_fine_align = bool(rospy.get_param("~use_fine_align", True))
 
-        self.move_base = actionlib.SimpleActionClient("/move_base", MoveBaseAction)
-        rospy.loginfo("Waiting for /move_base action server...")
-        self.move_base.wait_for_server(rospy.Duration(10.0))
+        self.navigator = SimplePoseNavigator()
 
         rospy.wait_for_service("/gripper/set")
         self.gripper_srv = rospy.ServiceProxy("/gripper/set", SetGripper)
@@ -83,18 +73,7 @@ class PickPlaceServer:
         self.server.publish_feedback(fb)
 
     def _move_to_pose(self, x, y, yaw, timeout=45.0):
-        goal = MoveBaseGoal()
-        goal.target_pose.header.stamp = rospy.Time.now()
-        goal.target_pose.header.frame_id = "map"
-        goal.target_pose.pose.position.x = x
-        goal.target_pose.pose.position.y = y
-        goal.target_pose.pose.orientation = yaw_to_quat(yaw)
-        self.move_base.send_goal(goal)
-        ok = self.move_base.wait_for_result(rospy.Duration(timeout))
-        if not ok:
-            self.move_base.cancel_goal()
-            return False
-        return self.move_base.get_state() == GoalStatus.SUCCEEDED
+        return self.navigator.goto(x, y, yaw, timeout_s=timeout)
 
     def _retreat(self):
         rate = rospy.Rate(20)

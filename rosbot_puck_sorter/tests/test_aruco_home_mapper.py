@@ -2,12 +2,10 @@
 import threading
 import time
 
-import actionlib
 import cv2
 import numpy as np
 import rospy
 from cv_bridge import CvBridge
-from move_base_msgs.msg import MoveBaseAction, MoveBaseResult
 from sensor_msgs.msg import Image
 
 from rosbot_puck_sorter.msg import HomeBaseArray
@@ -16,13 +14,13 @@ from rosbot_puck_sorter.srv import ScanHomes
 from common import load_script_module, safe_shutdown, wait_for
 
 
-class FakeMoveBaseServer:
+class FakeNavigator:
     def __init__(self):
-        self.server = actionlib.SimpleActionServer("/move_base", MoveBaseAction, execute_cb=self._execute, auto_start=False)
-        self.server.start()
+        self.goals = []
 
-    def _execute(self, _goal):
-        self.server.set_succeeded(MoveBaseResult())
+    def goto(self, x, y, yaw, timeout_s=45.0):
+        self.goals.append((x, y, yaw, timeout_s))
+        return True
 
 
 def generate_marker(dictionary, marker_id, size_px=160):
@@ -54,9 +52,8 @@ def main():
     rospy.set_param("~image_topic", "/camera/color/image_raw")
     rospy.set_param("~publish_start_relative", False)
 
-    FakeMoveBaseServer()
-
     module = load_script_module("qr_home_mapper.py", "qr_home_mapper_test_mod")
+    module.SimplePoseNavigator = FakeNavigator
     module.QRHomeMapper()
 
     bridge = CvBridge()

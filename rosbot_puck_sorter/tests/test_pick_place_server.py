@@ -3,7 +3,6 @@
 import actionlib
 import rospy
 from geometry_msgs.msg import Pose
-from move_base_msgs.msg import MoveBaseAction, MoveBaseResult
 from std_msgs.msg import UInt32
 from std_srvs.srv import Trigger, TriggerResponse
 
@@ -13,13 +12,13 @@ from rosbot_puck_sorter.srv import SetGripper, SetGripperResponse
 from common import load_script_module, safe_shutdown, wait_for
 
 
-class FakeMoveBaseServer:
+class FakeNavigator:
     def __init__(self):
-        self.server = actionlib.SimpleActionServer("/move_base", MoveBaseAction, execute_cb=self._execute, auto_start=False)
-        self.server.start()
+        self.goals = []
 
-    def _execute(self, _goal):
-        self.server.set_succeeded(MoveBaseResult())
+    def goto(self, x, y, yaw, timeout_s=45.0):
+        self.goals.append((x, y, yaw, timeout_s))
+        return True
 
 
 def gripper_cb(req):
@@ -40,11 +39,11 @@ def main():
     rospy.set_param("~stage_retry_count", 0)
     rospy.set_param("~use_fine_align", True)
 
-    FakeMoveBaseServer()
     rospy.Service("/gripper/set", SetGripper, gripper_cb)
     rospy.Service("/fine_align/execute", Trigger, fine_align_cb)
 
     module = load_script_module("pick_place_server.py", "pick_place_server_test_mod")
+    module.SimplePoseNavigator = FakeNavigator
     module.PickPlaceServer()
 
     delivered = {"track_id": 0}

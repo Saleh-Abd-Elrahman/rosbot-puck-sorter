@@ -16,10 +16,10 @@ The ROS package is in:
 - Ubuntu 20.04
 - ROS 1 Noetic
 - Catkin workspace
-- Navigation stack (`move_base`)
 - Localization (`amcl`)
 - RGB-D camera driver
 - LiDAR driver
+- ROSbot base driver that accepts `geometry_msgs/Twist` on `/cmd_vel`
 - Arduino Nano connected by USB serial to the ROSbot for gripper control
 - `python3-serial`
 - `twist_mux` (recommended for `/cmd_vel` arbitration)
@@ -38,7 +38,14 @@ source devel/setup.bash
 
 ## Run
 
-Launch your robot bringup (camera/lidar/nav/amcl/base driver) first, then:
+Launch your robot bringup first so these are already running:
+- RGB-D camera
+- LiDAR
+- localization (`amcl`)
+- base driver
+- `twist_mux` or equivalent routing of `/cmd_vel_nav` and `/cmd_vel_align` to the robot `/cmd_vel`
+
+Then:
 
 ```bash
 roslaunch rosbot_puck_sorter mission.launch

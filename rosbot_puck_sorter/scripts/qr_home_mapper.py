@@ -2,21 +2,19 @@
 import math
 import threading
 
-import actionlib
 import cv2
 import numpy as np
 import rospy
 import tf2_ros
 import tf2_geometry_msgs  # noqa: F401
-from actionlib_msgs.msg import GoalStatus
 from cv_bridge import CvBridge
 from geometry_msgs.msg import Pose, PoseStamped, Quaternion
-from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
 from sensor_msgs.msg import CameraInfo, Image
 from std_msgs.msg import Header
 
 from rosbot_puck_sorter.msg import HomeBase, HomeBaseArray
 from rosbot_puck_sorter.srv import ScanHomes, ScanHomesResponse
+from simple_pose_navigator import SimplePoseNavigator
 
 
 def yaw_to_quat(yaw):
@@ -75,9 +73,7 @@ class QRHomeMapper:
         rospy.Subscriber(self.image_topic, Image, self._image_cb, queue_size=1)
         rospy.Subscriber(self.camera_info_topic, CameraInfo, self._camera_info_cb, queue_size=1)
 
-        self.move_base = actionlib.SimpleActionClient("/move_base", MoveBaseAction)
-        rospy.loginfo("Waiting for /move_base action server...")
-        self.move_base.wait_for_server(rospy.Duration(10.0))
+        self.navigator = SimplePoseNavigator()
 
         self.home_map = {}
         self.service = rospy.Service("/scan_homes", ScanHomes, self._scan_cb)
@@ -150,18 +146,7 @@ class QRHomeMapper:
         return ""
 
     def _move_to(self, x, y, yaw):
-        goal = MoveBaseGoal()
-        goal.target_pose.header.stamp = rospy.Time.now()
-        goal.target_pose.header.frame_id = "map"
-        goal.target_pose.pose.position.x = x
-        goal.target_pose.pose.position.y = y
-        goal.target_pose.pose.orientation = yaw_to_quat(yaw)
-
-        self.move_base.send_goal(goal)
-        finished = self.move_base.wait_for_result(rospy.Duration(45.0))
-        if not finished:
-            return False
-        return self.move_base.get_state() == GoalStatus.SUCCEEDED
+        return self.navigator.goto(x, y, yaw, timeout_s=45.0)
 
     def _read_qr_markers(self):
         with self.lock:

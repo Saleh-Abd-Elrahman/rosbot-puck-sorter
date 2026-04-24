@@ -9,3 +9,17 @@ use_fixed_yaw: false
 yaw_at_waypoint_rad: 0.0
 scan_dwell_s: 1.0
 max_passes_before_finish_check: 2
+pose_topic: /amcl_pose
+cmd_topic: /cmd_vel_nav
+goal_xy_tolerance_m: 0.15
+goal_yaw_tolerance_rad: 0.22
+nav_control_rate_hz: 20.0
+nav_max_linear_speed_m_s: 0.16
+nav_max_angular_speed_rad_s: 0.9
+nav_linear_kp: 0.7
+nav_angular_kp: 1.8
+nav_drive_angular_kp: 1.2
+nav_rotate_in_place_threshold_rad: 0.45
+nav_slowing_distance_m: 0.50
+nav_success_hold_s: 0.20
+nav_pose_wait_timeout_s: 2.0

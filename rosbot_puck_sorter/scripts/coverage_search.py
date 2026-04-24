@@ -1,19 +1,11 @@
 #!/usr/bin/env python3
 import math
 
-import actionlib
 import rospy
-from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
 from std_msgs.msg import Int32, String
 from std_srvs.srv import Trigger, TriggerResponse
-from geometry_msgs.msg import Quaternion
 
-
-def yaw_to_quat(yaw):
-    q = Quaternion()
-    q.z = math.sin(yaw / 2.0)
-    q.w = math.cos(yaw / 2.0)
-    return q
+from simple_pose_navigator import SimplePoseNavigator
 
 
 class CoverageSearch:
@@ -31,9 +23,7 @@ class CoverageSearch:
         self.pub_status = rospy.Publisher("/coverage_search/status", String, queue_size=10)
         self.pub_passes = rospy.Publisher("/coverage_search/pass_count", Int32, queue_size=10, latch=True)
 
-        self.move_base = actionlib.SimpleActionClient("/move_base", MoveBaseAction)
-        rospy.loginfo("Waiting for /move_base action server...")
-        self.move_base.wait_for_server(rospy.Duration(10.0))
+        self.navigator = SimplePoseNavigator()
 
         self.pass_count = 0
         self.waypoints = self._build_waypoints()
@@ -69,15 +59,7 @@ class CoverageSearch:
         return wps
 
     def _goto(self, x, y, yaw):
-        goal = MoveBaseGoal()
-        goal.target_pose.header.stamp = rospy.Time.now()
-        goal.target_pose.header.frame_id = "map"
-        goal.target_pose.pose.position.x = x
-        goal.target_pose.pose.position.y = y
-        goal.target_pose.pose.orientation = yaw_to_quat(yaw)
-        self.move_base.send_goal(goal)
-        finished = self.move_base.wait_for_result(rospy.Duration(40.0))
-        return finished
+        return self.navigator.goto(x, y, yaw, timeout_s=40.0)
 
     def _perform_pass(self, _req):
         if not self.waypoints:
@@ -90,7 +72,7 @@ class CoverageSearch:
             cmd_yaw = self.yaw_at_waypoint_rad if self.use_fixed_yaw else yaw
             if not self._goto(x, y, cmd_yaw):
                 self.pub_status.publish(String(data="nav_failure"))
-                return TriggerResponse(success=False, message="move_base failed during coverage pass")
+                return TriggerResponse(success=False, message="cmd_vel navigation failed during coverage pass")
             rospy.sleep(self.scan_dwell_s)
 
         self.pass_count += 1

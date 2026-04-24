@@ -60,10 +60,11 @@ Launch these separately (robot-specific):
 - camera driver (RGB-D topics)
 - LiDAR driver
 - localization (`amcl`)
-- nav stack (`move_base`)
 - base motor driver (subscribes to `/cmd_vel`)
 - `twist_mux` configured to arbitrate `/cmd_vel_nav` and `/cmd_vel_align`
 - Arduino Nano gripper firmware from [gripper_serial_bridge.ino](/Users/salehabdelrahman/Desktop/Rob_Lab_Proj/arduino/gripper_serial_bridge/gripper_serial_bridge.ino)
+
+`move_base` is not required for this package anymore. The mission nodes drive the robot through direct `geometry_msgs/Twist` commands on `/cmd_vel_nav`, using AMCL pose feedback for simple point-to-point motion.
 
 ## Build
 
@@ -138,7 +139,7 @@ roslaunch rosbot_puck_sorter mission.launch
   - estimated `puck -> corresponding_home` cost
   - penalties (low confidence, prior failures, wall proximity, turn effort)
 - Optional one-step lookahead evaluates likely next cycle cost and biases the first choice.
-- If `/move_base/make_plan` is available, path length is used; otherwise Euclidean fallback is used.
+- If `/move_base/make_plan` is available and `use_make_plan_cost: true`, path length is used; otherwise Euclidean fallback is used.
 - Dynamic replanning is applied after every completed drop (next best puck is recomputed).
 - Coverage search only triggers after no viable target is available for a timeout window (`search_trigger_s`).
 - Mission ends when all `expected_colors` are delivered (strict mode), or by empty-area verification if strict mode is disabled.

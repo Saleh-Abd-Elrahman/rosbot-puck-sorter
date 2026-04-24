@@ -22,7 +22,7 @@ gripper_holding_topic: /gripper/holding_object
 
 search_trigger_s: 4.0
 
-use_make_plan_cost: true
+use_make_plan_cost: false
 make_plan_service: /move_base/make_plan
 make_plan_tolerance: 0.1
 

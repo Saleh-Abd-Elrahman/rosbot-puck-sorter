@@ -1,21 +1,19 @@
 #!/usr/bin/env python3
 
-import actionlib
 import rospy
-from move_base_msgs.msg import MoveBaseAction, MoveBaseResult
 from std_msgs.msg import Int32
 from std_srvs.srv import Trigger
 
 from common import load_script_module, safe_shutdown, wait_for
 
 
-class FakeMoveBaseServer:
+class FakeNavigator:
     def __init__(self):
-        self.server = actionlib.SimpleActionServer("/move_base", MoveBaseAction, execute_cb=self._execute, auto_start=False)
-        self.server.start()
+        self.goals = []
 
-    def _execute(self, _goal):
-        self.server.set_succeeded(MoveBaseResult())
+    def goto(self, x, y, yaw, timeout_s=45.0):
+        self.goals.append((x, y, yaw, timeout_s))
+        return True
 
 
 def main():
@@ -29,9 +27,8 @@ def main():
     rospy.set_param("~lane_spacing_m", 0.4)
     rospy.set_param("~scan_dwell_s", 0.01)
 
-    FakeMoveBaseServer()
-
     module = load_script_module("coverage_search.py", "coverage_search_test_mod")
+    module.SimplePoseNavigator = FakeNavigator
     module.CoverageSearch()
 
     pass_count = {"value": -1}

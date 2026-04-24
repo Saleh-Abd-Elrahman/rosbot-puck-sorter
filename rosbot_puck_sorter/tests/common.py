@@ -2,6 +2,7 @@
 import importlib.util
 import math
 import os
+import sys
 import time
 
 import rospy
@@ -13,6 +14,9 @@ def package_root_from_here():
 
 def load_script_module(script_filename, module_name):
     script_path = os.path.join(package_root_from_here(), "scripts", script_filename)
+    scripts_dir = os.path.dirname(script_path)
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
     spec = importlib.util.spec_from_file_location(module_name, script_path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
