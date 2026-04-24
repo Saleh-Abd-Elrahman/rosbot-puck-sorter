@@ -10,6 +10,7 @@ from common import load_script_module, safe_shutdown, wait_for
 def main():
     rospy.init_node("test_gripper_controller")
 
+    rospy.set_param("~backend", "mock")
     rospy.set_param("~pwm_channel", 0)
     rospy.set_param("~pwm_frequency_hz", 50)
     rospy.set_param("~min_pulse_us", 500)

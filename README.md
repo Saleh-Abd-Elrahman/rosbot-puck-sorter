@@ -20,6 +20,8 @@ The ROS package is in:
 - Localization (`amcl`)
 - RGB-D camera driver
 - LiDAR driver
+- Arduino Nano connected by USB serial to the ROSbot for gripper control
+- `python3-serial`
 - `twist_mux` (recommended for `/cmd_vel` arbitration)
 
 ## Build
@@ -48,11 +50,15 @@ Tune these files before first real run:
 - `rosbot_puck_sorter/config/qr_home_mapper.yaml` (corner waypoints)
 - `rosbot_puck_sorter/config/puck_color_hsv.yaml` (color thresholds)
 - `rosbot_puck_sorter/config/coverage_search.yaml` (arena bounds)
-- `rosbot_puck_sorter/config/gripper.yaml` (servo PWM + open/close angles)
+- `rosbot_puck_sorter/config/gripper.yaml` (USB serial port + gripper angles)
 - `rosbot_puck_sorter/config/start_frame.yaml` (startup-relative `start` frame)
 
 For ArUco markers, set `aruco_dictionary` and `aruco_id_to_color` in
 `rosbot_puck_sorter/config/qr_home_mapper.yaml`.
+
+For the gripper:
+- upload [gripper_serial_bridge.ino](/Users/salehabdelrahman/Desktop/Rob_Lab_Proj/arduino/gripper_serial_bridge/gripper_serial_bridge.ino) to the Arduino Nano
+- set the Nano USB device path in `rosbot_puck_sorter/config/gripper.yaml` (`serial_port`)
 
 ## Tests
 
