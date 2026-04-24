@@ -3,7 +3,7 @@ import threading
 import time
 
 import rospy
-from std_msgs.msg import Bool, Float32
+from std_msgs.msg import Bool, Float32, UInt16
 
 from rosbot_puck_sorter.srv import SetGripper, SetGripperResponse
 
@@ -149,17 +149,86 @@ class SerialBackend:
                 pass
 
 
+class RosserialTopicBackend:
+    def __init__(self, servo_topic, servo_load_topic, require_subscriber, subscriber_wait_s):
+        self.mode = "rosserial_topic"
+        self.servo_topic = str(servo_topic).strip() or "/servo"
+        self.servo_load_topic = str(servo_load_topic).strip()
+        self.require_subscriber = bool(require_subscriber)
+        self.subscriber_wait_s = float(subscriber_wait_s)
+
+        self.pub_servo = rospy.Publisher(self.servo_topic, UInt16, queue_size=10)
+        self.sub_load = None
+        self._load_lock = threading.Lock()
+        self._last_load_ma = None
+        self._last_load_stamp = None
+
+        if self.servo_load_topic:
+            self.sub_load = rospy.Subscriber(self.servo_load_topic, Float32, self._load_cb, queue_size=10)
+
+    def _load_cb(self, msg):
+        with self._load_lock:
+            self._last_load_ma = float(msg.data)
+            self._last_load_stamp = rospy.Time.now()
+
+    def latest_load_ma(self, max_age_s):
+        with self._load_lock:
+            if self._last_load_ma is None or self._last_load_stamp is None:
+                return None
+            age_s = (rospy.Time.now() - self._last_load_stamp).to_sec()
+            if age_s > float(max_age_s):
+                return None
+            return self._last_load_ma
+
+    def _wait_for_subscriber(self, timeout_s):
+        deadline = time.time() + max(0.0, float(timeout_s))
+        while not rospy.is_shutdown() and time.time() < deadline:
+            if self.pub_servo.get_num_connections() > 0:
+                return True
+            rospy.sleep(0.05)
+        return self.pub_servo.get_num_connections() > 0
+
+    def command(self, line, timeout_s):
+        parts = line.strip().split()
+        if len(parts) != 2 or parts[0] != "ANGLE":
+            return False, f"ERR unsupported rosserial command: {line.strip()}"
+
+        try:
+            angle = int(round(float(parts[1])))
+        except Exception:
+            return False, f"ERR invalid angle value: {parts[1]}"
+
+        angle = max(0, min(180, angle))
+
+        if self.require_subscriber and not self._wait_for_subscriber(min(timeout_s, self.subscriber_wait_s)):
+            return False, f"no subscriber connected on {self.servo_topic}"
+
+        self.pub_servo.publish(UInt16(data=angle))
+        return True, f"OK TOPIC {self.servo_topic} {angle}"
+
+    def shutdown(self):
+        return
+
+
 class GripperController:
     def __init__(self):
         self.lock = threading.Lock()
 
-        self.backend_name = str(rospy.get_param("~backend", rospy.get_param("~pwm_driver", "arduino_serial"))).strip().lower()
+        self.backend_name = str(rospy.get_param("~backend", rospy.get_param("~pwm_driver", "rosserial_topic"))).strip().lower()
 
         self.serial_port = rospy.get_param("~serial_port", "/dev/ttyUSB0")
         self.serial_baud_rate = int(rospy.get_param("~serial_baud_rate", 115200))
         self.serial_timeout_s = float(rospy.get_param("~serial_timeout_s", 0.3))
         self.command_timeout_s = float(rospy.get_param("~command_timeout_s", 1.0))
         self.startup_delay_s = float(rospy.get_param("~startup_delay_s", 2.0))
+
+        self.servo_topic = rospy.get_param("~servo_topic", "/servo")
+        self.servo_load_topic = rospy.get_param("~servo_load_topic", "/servoLoad")
+        self.require_servo_subscriber = bool(rospy.get_param("~require_servo_subscriber", True))
+        self.servo_subscriber_wait_s = float(rospy.get_param("~servo_subscriber_wait_s", 2.0))
+        self.use_load_feedback = bool(rospy.get_param("~use_load_feedback", False))
+        self.load_feedback_threshold_ma = float(rospy.get_param("~load_feedback_threshold_ma", 120.0))
+        self.load_feedback_timeout_s = float(rospy.get_param("~load_feedback_timeout_s", 2.0))
 
         self.pwm_channel = int(rospy.get_param("~pwm_channel", 0))
         self.pwm_frequency_hz = int(rospy.get_param("~pwm_frequency_hz", 50))
@@ -178,6 +247,7 @@ class GripperController:
 
         self.pub_angle = rospy.Publisher("/gripper/state", Float32, queue_size=10, latch=True)
         self.pub_hold = rospy.Publisher("/gripper/holding_object", Bool, queue_size=10, latch=True)
+        self.pub_load = rospy.Publisher("/gripper/load", Float32, queue_size=10, latch=True)
 
         self.service = rospy.Service("/gripper/set", SetGripper, self._set_cb)
 
@@ -194,6 +264,13 @@ class GripperController:
             return MockBackend()
         if self.backend_name in ("pigpio", "local_pwm"):
             return PigpioBackend(self.pwm_channel, self.pwm_frequency_hz)
+        if self.backend_name in ("rosserial", "rosserial_topic", "topic", "topic_pub"):
+            return RosserialTopicBackend(
+                self.servo_topic,
+                self.servo_load_topic,
+                self.require_servo_subscriber,
+                self.servo_subscriber_wait_s,
+            )
         if self.backend_name in ("serial", "arduino_serial", "nano_serial"):
             return SerialBackend(
                 self.serial_port,
@@ -234,6 +311,24 @@ class GripperController:
     def _publish_state(self):
         self.pub_angle.publish(Float32(data=float(self.current_angle)))
         self.pub_hold.publish(Bool(data=bool(self.holding_object)))
+        load_value = self._latest_load_ma()
+        if load_value is not None:
+            self.pub_load.publish(Float32(data=float(load_value)))
+
+    def _latest_load_ma(self):
+        getter = getattr(self.backend, "latest_load_ma", None)
+        if getter is None:
+            return None
+        try:
+            return getter(self.load_feedback_timeout_s)
+        except Exception:
+            return None
+
+    def _holding_from_load_feedback(self):
+        load_ma = self._latest_load_ma()
+        if load_ma is None:
+            return None
+        return load_ma >= self.load_feedback_threshold_ma
 
     def _set_cb(self, req):
         cmd = (req.command or "").strip().lower()
@@ -257,6 +352,12 @@ class GripperController:
                 return SetGripperResponse(success=False, message=msg)
 
             rospy.sleep(self.settle_time_s)
+
+            if cmd == "close" and self.use_load_feedback:
+                holding = self._holding_from_load_feedback()
+                if holding is not None:
+                    self.holding_object = holding
+
             self._publish_state()
             return SetGripperResponse(success=True, message=msg)
 

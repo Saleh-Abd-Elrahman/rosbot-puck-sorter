@@ -3,7 +3,7 @@
 ROS 1 package for color puck sorting with:
 - ArUco-marker-based dynamic home mapping (`red`, `green`, `blue`)
 - Continuous RGB-D puck detection and world tracking
-- Pick/place action with servo gripper control through an Arduino Nano over USB serial
+- Pick/place action with servo gripper control through an Arduino Nano over `rosserial`
 - Coverage search when no valid targets are available
 
 ## Package contents
@@ -18,7 +18,7 @@ ROS 1 package for color puck sorting with:
 - `scripts/coverage_search.py`: rectangle coverage pass executor
 - `scripts/fine_align_controller.py`: close-range camera alignment
 - `scripts/pick_place_server.py`: one puck pick/place action server
-- `scripts/gripper_controller.py`: gripper service node that sends serial commands to the Arduino Nano
+- `scripts/gripper_controller.py`: gripper service node that publishes servo angles to `rosserial` topics
 
 ## Interfaces
 
@@ -62,7 +62,7 @@ Launch these separately (robot-specific):
 - localization (`amcl`)
 - base motor driver (subscribes to `/cmd_vel`)
 - `twist_mux` configured to arbitrate `/cmd_vel_nav` and `/cmd_vel_align`
-- Arduino Nano gripper firmware from [gripper_serial_bridge.ino](/Users/salehabdelrahman/Desktop/Rob_Lab_Proj/arduino/gripper_serial_bridge/gripper_serial_bridge.ino)
+- Arduino Nano gripper firmware from [gripper_rosserial.ino](/Users/salehabdelrahman/Desktop/Rob_Lab_Proj/arduino/gripper_rosserial/gripper_rosserial.ino)
 
 `move_base` is not required for this package anymore. The mission nodes drive the robot through direct `geometry_msgs/Twist` commands on `/cmd_vel_nav`, using AMCL pose feedback for simple point-to-point motion.
 
@@ -77,7 +77,7 @@ source devel/setup.bash
 
 If this package directory is not under `<ws>/src`, move or symlink it there first.
 
-Install serial dependency if needed:
+If you still want the older direct-serial backend:
 
 ```bash
 sudo apt install python3-serial
@@ -103,19 +103,34 @@ roslaunch rosbot_puck_sorter mission.launch
   - If intrinsics are unavailable, fallback estimation uses `hfov_deg`.
 - QR payload mode is still available by setting `marker_mode: qr` and using `qr_expected_codes`.
 
-## Gripper Setup (Arduino Nano over USB)
+## Gripper Setup (Professor `rosserial` workflow)
 
-- Upload [gripper_serial_bridge.ino](/Users/salehabdelrahman/Desktop/Rob_Lab_Proj/arduino/gripper_serial_bridge/gripper_serial_bridge.ino) to the Nano.
-- Wire the servo signal to the pin configured in the sketch (`SERVO_PIN`, default `9`).
-- Set the matching USB device in `config/gripper.yaml`:
-  - `backend: arduino_serial`
-  - `serial_port: /dev/ttyUSB0` or `/dev/ttyACM0`
-  - `serial_baud_rate: 115200`
-- `open_angle_deg` and `close_angle_deg` are controlled from the ROS side and sent as `ANGLE <deg>` commands over serial.
-- The Nano replies with simple ASCII acknowledgements:
-  - `OK ANGLE 20`
-  - `ERR ...`
-- Hold detection is still heuristic on the ROS side unless you add a real sensor.
+- Upload [gripper_rosserial.ino](/Users/salehabdelrahman/Desktop/Rob_Lab_Proj/arduino/gripper_rosserial/gripper_rosserial.ino) to the Nano.
+- Generate `ros_lib` for the Arduino IDE if your setup does not already have it.
+- Wire the servo signal to pin `9` and the current/load sensor to `A0` if you are using load feedback.
+- On the robot computer connected to the Nano, run:
+
+```bash
+rosrun rosserial_python serial_node.py /dev/ttyUSB0
+```
+
+- The Nano exposes:
+  - `/servo` (`std_msgs/UInt16`) for angle commands
+  - `/servoLoad` (`std_msgs/Float32`) for reported load/current
+- This package now defaults to:
+  - `backend: rosserial_topic`
+  - `servo_topic: /servo`
+  - `servo_load_topic: /servoLoad`
+  - `open_angle_deg: 0`
+  - `close_angle_deg: 170`
+- The rest of the sorter still uses `/gripper/set`, so mission code does not need to change.
+- You can also test the hardware directly with:
+
+```bash
+rostopic pub /servo std_msgs/UInt16 "data: 0" -1
+rostopic pub /servo std_msgs/UInt16 "data: 170" -1
+rostopic echo /servoLoad
+```
 
 ## Startup Survey Behavior
 
@@ -162,7 +177,7 @@ roslaunch rosbot_puck_sorter mission.launch
 1. Update `config/qr_home_mapper.yaml` corner waypoints to your arena map coordinates.
 2. Tune HSV thresholds in `config/puck_color_hsv.yaml` under your actual lighting.
 3. Tune coverage bounds in `config/coverage_search.yaml`.
-4. Set `config/gripper.yaml` for the Nano serial port and calibrate `open_angle_deg` / `close_angle_deg`.
+4. Set `config/gripper.yaml` for the `rosserial` topics and calibrate `open_angle_deg` / `close_angle_deg`.
 5. Verify `twist_mux` wiring and ensure only mux output goes to robot `/cmd_vel`.
 6. Keep `config/start_frame.yaml` enabled if you want startup-relative coordinates.
 7. Tune `config/startup_survey.yaml` (rotation speed, marker size, snapshot path).
@@ -206,4 +221,4 @@ If your marker IDs differ, update `_expected_ids` and `config/qr_home_mapper.yam
 - Home bases are stored as full map-frame `Pose` (`x`, `y`, `z` + orientation).
 - `HomeBase` now includes `marker_distance_m` from ArUco pose estimation (meters; `-1.0` when unavailable).
 - Navigation still runs in `map`; start-relative telemetry is published in `start`.
-- Current gripper hold detection is heuristic (no force/current sensor). Add hardware feedback if available.
+- Current gripper hold detection stays heuristic unless you enable `use_load_feedback` in [gripper.yaml](/Users/salehabdelrahman/Desktop/Rob_Lab_Proj/rosbot_puck_sorter/config/gripper.yaml).
