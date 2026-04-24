@@ -10,7 +10,7 @@ stage_retry_count: 2
 pickup_verify_mode: vision_plus_servo
 pickup_verify_timeout_s: 1.5
 pose_topic: /amcl_pose
-cmd_topic: /cmd_vel_nav
+cmd_topic: /cmd_vel
 nav_control_rate_hz: 20.0
 nav_max_linear_speed_m_s: 0.16
 nav_max_angular_speed_rad_s: 0.9

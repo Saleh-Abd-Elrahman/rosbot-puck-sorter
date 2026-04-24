@@ -14,6 +14,7 @@ class FineAlignController:
         self.lock = threading.Lock()
 
         self.control_rate_hz = rospy.get_param("~control_rate_hz", 20.0)
+        self.cmd_topic = rospy.get_param("~cmd_topic", "/cmd_vel")
         self.kp_yaw = rospy.get_param("~kp_yaw", 0.005)
         self.kp_fwd = rospy.get_param("~kp_fwd", 0.0025)
         self.max_ang_vel = rospy.get_param("~max_ang_vel_rad_s", 0.7)
@@ -27,7 +28,7 @@ class FineAlignController:
         self.current_target_color = ""
         self.latest_detections = []
 
-        self.pub_cmd = rospy.Publisher("/cmd_vel_align", Twist, queue_size=10)
+        self.pub_cmd = rospy.Publisher(self.cmd_topic, Twist, queue_size=10)
         rospy.Subscriber("/puck/detections", PuckDetectionArray, self._detections_cb, queue_size=10)
         rospy.Subscriber("/mission/current_target", PuckTrack, self._target_cb, queue_size=10)
 

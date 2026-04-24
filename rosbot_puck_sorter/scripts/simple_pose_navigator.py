@@ -19,7 +19,7 @@ class SimplePoseNavigator:
         self.lock = threading.Lock()
 
         self.pose_topic = rospy.get_param("~pose_topic", "/amcl_pose")
-        self.cmd_topic = rospy.get_param("~cmd_topic", "/cmd_vel_nav")
+        self.cmd_topic = rospy.get_param("~cmd_topic", "/cmd_vel")
         self.control_rate_hz = float(rospy.get_param("~nav_control_rate_hz", 20.0))
         self.max_linear_speed = float(rospy.get_param("~nav_max_linear_speed_m_s", 0.18))
         self.max_angular_speed = float(rospy.get_param("~nav_max_angular_speed_rad_s", 0.9))

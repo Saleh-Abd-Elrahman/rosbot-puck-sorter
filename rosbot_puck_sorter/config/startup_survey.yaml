@@ -2,7 +2,7 @@ start_frame: start
 image_topic: /camera/color/image_raw
 camera_info_topic: /camera/color/camera_info
 puck_detection_topic: /puck/detections
-cmd_topic: /cmd_vel_nav
+cmd_topic: /cmd_vel
 
 marker_mode: aruco
 aruco_dictionary: DICT_4X4_50

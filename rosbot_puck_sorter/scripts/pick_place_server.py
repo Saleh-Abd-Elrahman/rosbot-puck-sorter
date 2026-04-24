@@ -28,6 +28,7 @@ class PickPlaceServer:
         self.retreat_distance_m = rospy.get_param("~retreat_distance_m", 0.20)
         self.stage_retry_count = int(rospy.get_param("~stage_retry_count", 2))
         self.use_fine_align = bool(rospy.get_param("~use_fine_align", True))
+        self.cmd_topic = rospy.get_param("~cmd_topic", "/cmd_vel")
 
         self.navigator = SimplePoseNavigator()
 
@@ -49,7 +50,7 @@ class PickPlaceServer:
         rospy.Subscriber("/gripper/holding_object", Bool, self._holding_cb, queue_size=10)
         rospy.Subscriber("/amcl_pose", PoseWithCovarianceStamped, self._amcl_cb, queue_size=10)
 
-        self.pub_cmd_nav = rospy.Publisher("/cmd_vel_nav", Twist, queue_size=10)
+        self.pub_cmd_nav = rospy.Publisher(self.cmd_topic, Twist, queue_size=10)
         self.pub_delivered = rospy.Publisher("/puck_world_model/delivered_track", UInt32, queue_size=10)
         self.pub_release = rospy.Publisher("/puck_world_model/release_track", UInt32, queue_size=10)
         self.pub_current_target = rospy.Publisher("/mission/current_target", PuckTrack, queue_size=10)

@@ -10,7 +10,7 @@ yaw_at_waypoint_rad: 0.0
 scan_dwell_s: 1.0
 max_passes_before_finish_check: 2
 pose_topic: /amcl_pose
-cmd_topic: /cmd_vel_nav
+cmd_topic: /cmd_vel
 goal_xy_tolerance_m: 0.15
 goal_yaw_tolerance_rad: 0.22
 nav_control_rate_hz: 20.0

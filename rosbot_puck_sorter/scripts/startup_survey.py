@@ -36,7 +36,7 @@ class StartupSurvey:
         self.image_topic = rospy.get_param("~image_topic", "/camera/color/image_raw")
         self.camera_info_topic = rospy.get_param("~camera_info_topic", "/camera/color/camera_info")
         self.puck_detection_topic = rospy.get_param("~puck_detection_topic", "/puck/detections")
-        self.cmd_topic = rospy.get_param("~cmd_topic", "/cmd_vel_nav")
+        self.cmd_topic = rospy.get_param("~cmd_topic", "/cmd_vel")
 
         self.marker_mode = str(rospy.get_param("~marker_mode", "aruco")).strip().lower()
         self.aruco_dictionary_name = rospy.get_param("~aruco_dictionary", "DICT_4X4_50")

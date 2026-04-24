@@ -1,4 +1,5 @@
 control_rate_hz: 20.0
+cmd_topic: /cmd_vel
 kp_yaw: 0.005
 kp_fwd: 0.0025
 max_ang_vel_rad_s: 0.7
