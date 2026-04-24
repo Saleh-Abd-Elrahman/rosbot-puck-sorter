@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
 import math
+import os
+import sys
 
 import actionlib
 import rospy
 from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
 from std_msgs.msg import Bool, UInt32
 from std_srvs.srv import Trigger
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, SCRIPT_DIR)
 
 from rosbot_puck_sorter.msg import PickAndPlaceAction, PickAndPlaceFeedback, PickAndPlaceResult, PuckTrack
 from rosbot_puck_sorter.srv import SetGripper

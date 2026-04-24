@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import math
+import os
+import sys
 import threading
 
 import cv2
@@ -11,6 +13,10 @@ from cv_bridge import CvBridge
 from geometry_msgs.msg import Pose, PoseStamped, Quaternion
 from sensor_msgs.msg import CameraInfo, Image
 from std_msgs.msg import Header
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, SCRIPT_DIR)
 
 from rosbot_puck_sorter.msg import HomeBase, HomeBaseArray
 from rosbot_puck_sorter.srv import ScanHomes, ScanHomesResponse

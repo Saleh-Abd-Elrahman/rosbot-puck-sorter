@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
 import math
+import os
+import sys
 
 import rospy
 from std_msgs.msg import Int32, String
 from std_srvs.srv import Trigger, TriggerResponse
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, SCRIPT_DIR)
 
 from simple_pose_navigator import SimplePoseNavigator
 
