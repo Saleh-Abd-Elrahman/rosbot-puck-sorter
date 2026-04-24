@@ -76,7 +76,15 @@ class SerialBackend:
             import serial
 
             self.serial = serial
-            factory = getattr(serial, "serial_for_url", serial.Serial)
+            factory = getattr(serial, "serial_for_url", None)
+            if factory is None:
+                factory = getattr(serial, "Serial", None)
+            if factory is None:
+                raise RuntimeError(
+                    "python module 'serial' is not pyserial "
+                    f"(loaded from {getattr(serial, '__file__', '<unknown>')}); "
+                    "expected attributes Serial or serial_for_url"
+                )
             self.ser = factory(
                 self.port,
                 baudrate=self.baud_rate,
