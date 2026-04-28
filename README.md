@@ -60,6 +60,10 @@ roslaunch rosbot_puck_sorter mission.launch enable_cmd_vel_dead_reckoner:=true
 That makes the package integrate its own `/cmd_vel` commands into an approximate
 `/odom`. Real wheel odometry is still preferred.
 
+For no-AMCL operation, hard-coded corner scanning is disabled by default. Keep
+`home_scan_required: false` until `config/qr_home_mapper.yaml` corner waypoints
+match your arena; otherwise the robot can drive toward the wrong wall.
+
 ## Configuration
 
 Tune these files before first real run:

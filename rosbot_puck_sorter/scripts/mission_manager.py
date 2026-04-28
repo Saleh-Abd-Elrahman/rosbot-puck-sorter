@@ -46,6 +46,7 @@ class MissionManager:
         self.empty_passes_required = int(rospy.get_param("~empty_passes_required", 2))
         self.mission_timeout_s = rospy.get_param("~mission_timeout_s", 1800.0)
         self.home_scan_required = bool(rospy.get_param("~home_scan_required", True))
+        self.require_homes_before_motion = bool(rospy.get_param("~require_homes_before_motion", True))
         self.track_confidence_min = rospy.get_param("~track_confidence_min", 0.55)
         self.gripper_holding_topic = rospy.get_param("~gripper_holding_topic", "/gripper/holding_object")
         self.search_trigger_s = float(rospy.get_param("~search_trigger_s", 4.0))
@@ -246,6 +247,13 @@ class MissionManager:
         if not self.expected_colors:
             return []
         return [c for c in self.expected_colors if c not in self.completed_colors]
+
+    def _missing_home_colors(self):
+        if self.expected_colors:
+            colors = self.expected_colors
+        else:
+            colors = ["red", "green", "blue"]
+        return [c for c in colors if c not in self.homes]
 
     def _publish_state(self, finished=False):
         out = MissionState()
@@ -685,6 +693,14 @@ class MissionManager:
             if self.holding_object:
                 self.state = "WAITING_FOR_RELEASE"
                 self.note = "gripper still reports a held puck; waiting for release confirmation"
+                self._publish_state()
+                rate.sleep()
+                continue
+
+            missing_homes = self._missing_home_colors()
+            if self.require_homes_before_motion and missing_homes:
+                self.state = "WAITING_FOR_HOMES"
+                self.note = "missing home markers for colors: " + ",".join(missing_homes)
                 self._publish_state()
                 rate.sleep()
                 continue

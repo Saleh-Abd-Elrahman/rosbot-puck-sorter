@@ -102,6 +102,12 @@ If both commands fail but `/cmd_vel` moves the robot, use:
 roslaunch rosbot_puck_sorter mission.launch enable_cmd_vel_dead_reckoner:=true
 ```
 
+In no-AMCL mode, automatic corner driving is disabled by default
+(`home_scan_required: false`) because `config/qr_home_mapper.yaml`
+corner waypoints must match your physical arena. The mission waits in
+`WAITING_FOR_HOMES` until startup survey or another publisher provides
+`/home_bases`.
+
 ## Marker setup (ArUco)
 
 - `config/qr_home_mapper.yaml` now defaults to `marker_mode: aruco`.
@@ -197,7 +203,7 @@ rostopic echo /servoLoad
 
 ## Tuning checklist
 
-1. Update `config/qr_home_mapper.yaml` corner waypoints to your arena map coordinates.
+1. Update `config/qr_home_mapper.yaml` corner waypoints to your arena odom/start coordinates before enabling `home_scan_required`.
 2. Tune HSV thresholds in `config/puck_color_hsv.yaml` under your actual lighting.
 3. Tune coverage bounds in `config/coverage_search.yaml`.
 4. Set `config/gripper.yaml` for the `rosserial` topics and calibrate `open_angle_deg` / `close_angle_deg`.

@@ -16,7 +16,8 @@ blacklist_duration_s: 20.0
 verification_empty_time_s: 20.0
 empty_passes_required: 2
 mission_timeout_s: 1800.0
-home_scan_required: true
+home_scan_required: false
+require_homes_before_motion: true
 track_confidence_min: 0.55
 gripper_holding_topic: /gripper/holding_object
 
