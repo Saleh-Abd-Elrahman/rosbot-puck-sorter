@@ -1,8 +1,10 @@
 <launch>
   <arg name="enable_gripper_controller" default="true" />
+  <arg name="enable_cmd_vel_dead_reckoner" default="false" />
 
   <include file="$(find rosbot_puck_sorter)/launch/bringup.launch" >
     <arg name="enable_gripper_controller" value="$(arg enable_gripper_controller)" />
+    <arg name="enable_cmd_vel_dead_reckoner" value="$(arg enable_cmd_vel_dead_reckoner)" />
   </include>
 
   <rosparam command="load" file="$(find rosbot_puck_sorter)/config/mission_manager.yaml" ns="mission_manager" />

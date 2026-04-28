@@ -16,7 +16,7 @@ The ROS package is in:
 - Ubuntu 20.04
 - ROS 1 Noetic
 - Catkin workspace
-- Localization (`amcl`)
+- Odometry (`/odom` plus `odom -> base_link` TF). AMCL is optional.
 - RGB-D camera driver
 - LiDAR driver
 - ROSbot base driver that accepts `geometry_msgs/Twist` on `/cmd_vel`
@@ -40,7 +40,7 @@ source devel/setup.bash
 Launch your robot bringup first so these are already running:
 - RGB-D camera
 - LiDAR
-- localization (`amcl`)
+- odometry (`/odom` plus `odom -> base_link` TF); AMCL is optional
 - base driver subscribed to `/cmd_vel`
 - `rosrun rosserial_python serial_node.py /dev/ttyUSB0` for the gripper Arduino
 
@@ -49,6 +49,16 @@ Then:
 ```bash
 roslaunch rosbot_puck_sorter mission.launch
 ```
+
+If your ROSbot does not publish `/odom`, you can run a last-resort command
+dead-reckoner instead:
+
+```bash
+roslaunch rosbot_puck_sorter mission.launch enable_cmd_vel_dead_reckoner:=true
+```
+
+That makes the package integrate its own `/cmd_vel` commands into an approximate
+`/odom`. Real wheel odometry is still preferred.
 
 ## Configuration
 

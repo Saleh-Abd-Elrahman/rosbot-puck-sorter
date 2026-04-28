@@ -9,7 +9,8 @@ ROS 1 package for color puck sorting with:
 ## Package contents
 
 - `scripts/mission_manager.py`: mission FSM and orchestration
-- `scripts/start_frame_manager.py`: captures initial pose and publishes start-relative frame/topics
+- `scripts/start_frame_manager.py`: captures initial odom/pose and publishes start-relative frame/topics
+- `scripts/cmd_vel_dead_reckoner.py`: optional fallback odom/TF publisher from commanded velocity
 - `scripts/startup_survey.py`: startup 360 rotation scan for ArUco homes + puck observations
 - `scripts/semantic_grid_mapper.py`: builds start-frame occupancy grid + semantic object layer
 - `scripts/qr_home_mapper.py`: scans 3 corners and maps home colors (ArUco or QR fallback)
@@ -59,11 +60,11 @@ ROS 1 package for color puck sorting with:
 Launch these separately (robot-specific):
 - camera driver (RGB-D topics)
 - LiDAR driver
-- localization (`amcl`)
+- odometry (`/odom` plus `odom -> base_link` TF); AMCL is optional
 - base motor driver (subscribes to `/cmd_vel`)
 - Arduino Nano gripper firmware from [gripper_rosserial.ino](/Users/salehabdelrahman/Desktop/Rob_Lab_Proj/arduino/gripper_rosserial/gripper_rosserial.ino)
 
-`move_base` is not required for this package anymore. The mission nodes drive the robot through direct `geometry_msgs/Twist` commands on `/cmd_vel`, using AMCL pose feedback for simple point-to-point motion.
+`move_base` is not required for this package anymore. The mission nodes drive the robot through direct `geometry_msgs/Twist` commands on `/cmd_vel`, using `/odom` or TF pose feedback for simple point-to-point motion. If your robot only exposes `/cmd_vel`, launch with `enable_cmd_vel_dead_reckoner:=true` to publish approximate odom from commanded velocity.
 
 ## Build
 
@@ -86,6 +87,19 @@ sudo apt install python3-serial
 
 ```bash
 roslaunch rosbot_puck_sorter mission.launch
+```
+
+For no-AMCL operation, leave the default configs on `map_frame: odom` and verify:
+
+```bash
+rostopic echo -n1 /odom
+rosrun tf tf_echo odom base_link
+```
+
+If both commands fail but `/cmd_vel` moves the robot, use:
+
+```bash
+roslaunch rosbot_puck_sorter mission.launch enable_cmd_vel_dead_reckoner:=true
 ```
 
 ## Marker setup (ArUco)
@@ -188,7 +202,7 @@ rostopic echo /servoLoad
 3. Tune coverage bounds in `config/coverage_search.yaml`.
 4. Set `config/gripper.yaml` for the `rosserial` topics and calibrate `open_angle_deg` / `close_angle_deg`.
 5. Verify the ROSbot base driver is subscribed to `/cmd_vel`.
-6. Keep `config/start_frame.yaml` enabled if you want startup-relative coordinates.
+6. Keep `config/start_frame.yaml` on `pose_source: odom` for no-AMCL operation.
 7. Tune `config/startup_survey.yaml` (rotation speed, marker size, snapshot path).
 8. Tune `config/semantic_map.yaml` (occupancy grid bounds/resolution/object painting).
 9. Tune `config/mission_manager.yaml` selection weights (`lookahead`, penalties, `search_trigger_s`, `use_make_plan_cost`).
@@ -229,5 +243,5 @@ If your marker IDs differ, update `_expected_ids` and `config/qr_home_mapper.yam
 - Red uses two HSV hue ranges (`red1`, `red2`) due hue wraparound in OpenCV.
 - Home bases are stored as full map-frame `Pose` (`x`, `y`, `z` + orientation).
 - `HomeBase` now includes `marker_distance_m` from ArUco pose estimation (meters; `-1.0` when unavailable).
-- Navigation still runs in `map`; start-relative telemetry is published in `start`.
+- Navigation now runs in `odom` by default so AMCL is not required; start-relative telemetry is published in `start`.
 - Gripper hold detection uses load feedback by default; tune `load_feedback_threshold_ma` in [gripper.yaml](/Users/salehabdelrahman/Desktop/Rob_Lab_Proj/rosbot_puck_sorter/config/gripper.yaml) after checking `/servoLoad`.

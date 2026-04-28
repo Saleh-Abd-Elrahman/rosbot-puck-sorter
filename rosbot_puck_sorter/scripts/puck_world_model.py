@@ -8,6 +8,7 @@ import tf2_ros
 import tf2_geometry_msgs  # noqa: F401
 from geometry_msgs.msg import PoseWithCovarianceStamped
 from geometry_msgs.msg import Pose, PoseStamped
+from nav_msgs.msg import Odometry
 from std_msgs.msg import Header, UInt32
 from rosbot_puck_sorter.msg import (
     HomeBaseArray,
@@ -49,8 +50,12 @@ class PuckWorldModel:
         self.merge_dist_m = rospy.get_param("~merge_dist_m", 0.10)
         self.reserve_timeout_s = rospy.get_param("~reserve_timeout_s", 30.0)
         self.home_exclusion_radius_m = rospy.get_param("~home_exclusion_radius_m", 0.22)
+        self.map_frame = rospy.get_param("~map_frame", "map")
         self.start_frame = rospy.get_param("~start_frame", "start")
         self.publish_start_relative = bool(rospy.get_param("~publish_start_relative", True))
+        self.pose_source = str(rospy.get_param("~pose_source", "auto")).strip().lower()
+        self.pose_topic = rospy.get_param("~pose_topic", "/amcl_pose")
+        self.odom_topic = rospy.get_param("~odom_topic", "/odom")
 
         self.tracks = {}
         self.next_track_id = 1
@@ -68,7 +73,10 @@ class PuckWorldModel:
 
         rospy.Subscriber("/puck/detections", PuckDetectionArray, self._detections_cb, queue_size=10)
         rospy.Subscriber("/home_bases", HomeBaseArray, self._homes_cb, queue_size=1)
-        rospy.Subscriber("/amcl_pose", PoseWithCovarianceStamped, self._amcl_pose_cb, queue_size=10)
+        if self.pose_source in ("auto", "amcl", "pose", "pose_topic"):
+            rospy.Subscriber(self.pose_topic, PoseWithCovarianceStamped, self._amcl_pose_cb, queue_size=10)
+        if self.pose_source in ("auto", "odom"):
+            rospy.Subscriber(self.odom_topic, Odometry, self._odom_cb, queue_size=10)
         rospy.Subscriber("/puck_world_model/delivered_track", UInt32, self._delivered_cb, queue_size=10)
         rospy.Subscriber("/puck_world_model/release_track", UInt32, self._release_cb, queue_size=10)
         rospy.Subscriber("/puck_world_model/lost_track", UInt32, self._lost_cb, queue_size=10)
@@ -79,9 +87,15 @@ class PuckWorldModel:
         rospy.loginfo("puck_world_model ready")
 
     def _amcl_pose_cb(self, msg):
+        self._set_robot_pose(msg.pose.pose)
+
+    def _odom_cb(self, msg):
+        self._set_robot_pose(msg.pose.pose)
+
+    def _set_robot_pose(self, pose):
         with self.lock:
-            self.robot_x = msg.pose.pose.position.x
-            self.robot_y = msg.pose.pose.position.y
+            self.robot_x = pose.position.x
+            self.robot_y = pose.position.y
             self.have_robot_pose = True
 
     def _homes_cb(self, msg):
@@ -114,7 +128,7 @@ class PuckWorldModel:
     def _to_start_pose(self, pose_map, stamp):
         ps = PoseStamped()
         ps.header.stamp = stamp
-        ps.header.frame_id = "map"
+        ps.header.frame_id = self.map_frame
         ps.pose = pose_map
         try:
             out = self.tf_buffer.transform(ps, self.start_frame, timeout=rospy.Duration(0.02))
@@ -330,7 +344,7 @@ class PuckWorldModel:
                 self.tracks.pop(rid, None)
 
             msg = PuckTrackArray()
-            msg.header = Header(stamp=now, frame_id="map")
+            msg.header = Header(stamp=now, frame_id=self.map_frame)
             msg_start = PuckTrackArray()
             msg_start.header = Header(stamp=now, frame_id=self.start_frame)
             remaining = 0

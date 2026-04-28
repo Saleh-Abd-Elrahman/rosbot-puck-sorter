@@ -6,7 +6,7 @@ import threading
 
 import actionlib
 import rospy
-from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
+from geometry_msgs.msg import Twist
 from std_msgs.msg import Bool, UInt32
 from std_srvs.srv import Trigger
 
@@ -63,11 +63,7 @@ class PickPlaceServer:
         self.holding_stamp = rospy.Time(0)
         self.latest_detections = []
         self.latest_detections_stamp = rospy.Time(0)
-        self.robot_x = 0.0
-        self.robot_y = 0.0
-        self.have_robot_pose = False
         rospy.Subscriber("/gripper/holding_object", Bool, self._holding_cb, queue_size=10)
-        rospy.Subscriber("/amcl_pose", PoseWithCovarianceStamped, self._amcl_cb, queue_size=10)
         rospy.Subscriber("/puck/detections", PuckDetectionArray, self._detections_cb, queue_size=10)
 
         self.pub_cmd_nav = rospy.Publisher(self.cmd_topic, Twist, queue_size=10)
@@ -90,12 +86,6 @@ class PickPlaceServer:
         with self.lock:
             self.holding_object = bool(msg.data)
             self.holding_stamp = rospy.Time.now()
-
-    def _amcl_cb(self, msg):
-        with self.lock:
-            self.robot_x = msg.pose.pose.position.x
-            self.robot_y = msg.pose.pose.position.y
-            self.have_robot_pose = True
 
     def _detections_cb(self, msg):
         with self.lock:
@@ -255,10 +245,7 @@ class PickPlaceServer:
 
         # Stage 1: move to pre-grasp pose facing puck.
         self._publish_feedback("approach_pick", 0.10)
-        with self.lock:
-            have_robot_pose = self.have_robot_pose
-            robot_x = self.robot_x
-            robot_y = self.robot_y
+        have_robot_pose, robot_x, robot_y, _robot_yaw = self.navigator.current_pose()
         if have_robot_pose:
             yaw_to_pick = math.atan2(pick_y - robot_y, pick_x - robot_x)
         else:

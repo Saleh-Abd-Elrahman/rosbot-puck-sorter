@@ -37,5 +37,9 @@ rect_x_min: 0.0
 rect_x_max: 5.0
 rect_y_min: 0.0
 rect_y_max: 4.0
-map_frame: map
+map_frame: odom
+odom_frame: odom
 base_frame: base_link
+pose_source: odom
+pose_topic: /amcl_pose
+odom_topic: /odom

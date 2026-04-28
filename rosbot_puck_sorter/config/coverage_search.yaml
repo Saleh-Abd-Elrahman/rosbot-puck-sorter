@@ -8,7 +8,12 @@ waypoint_reached_tol_m: 0.15
 use_fixed_yaw: false
 yaw_at_waypoint_rad: 0.0
 scan_dwell_s: 1.0
+map_frame: odom
+odom_frame: odom
+base_frame: base_link
+nav_pose_source: odom
 pose_topic: /amcl_pose
+odom_topic: /odom
 cmd_topic: /cmd_vel
 goal_xy_tolerance_m: 0.15
 goal_yaw_tolerance_rad: 0.22
@@ -22,3 +27,9 @@ nav_rotate_in_place_threshold_rad: 0.45
 nav_slowing_distance_m: 0.50
 nav_success_hold_s: 0.20
 nav_pose_wait_timeout_s: 2.0
+nav_pose_stale_timeout_s: 3.0
+nav_allow_open_loop_fallback: true
+nav_open_loop_linear_speed_m_s: 0.16
+nav_open_loop_angular_speed_rad_s: 0.45
+nav_open_loop_distance_scale: 1.0
+nav_open_loop_turn_scale: 1.0

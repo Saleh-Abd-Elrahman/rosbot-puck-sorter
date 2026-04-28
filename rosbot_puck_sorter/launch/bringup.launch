@@ -1,5 +1,6 @@
 <launch>
   <arg name="enable_gripper_controller" default="true" />
+  <arg name="enable_cmd_vel_dead_reckoner" default="false" />
 
   <!-- Core shared params -->
   <rosparam command="load" file="$(find rosbot_puck_sorter)/config/common.yaml" />
@@ -17,7 +18,8 @@
   <rosparam command="load" file="$(find rosbot_puck_sorter)/config/fine_align_controller.yaml" ns="fine_align_controller" />
   <rosparam command="load" file="$(find rosbot_puck_sorter)/config/gripper.yaml" ns="gripper_controller" />
 
-  <!-- Assumes camera, lidar, localization, and base driver are launched elsewhere -->
+  <!-- Assumes camera, lidar, odometry, and base driver are launched elsewhere -->
+  <node if="$(arg enable_cmd_vel_dead_reckoner)" pkg="rosbot_puck_sorter" type="cmd_vel_dead_reckoner.py" name="cmd_vel_dead_reckoner" output="screen" />
   <node pkg="rosbot_puck_sorter" type="start_frame_manager.py" name="start_frame_manager" output="screen" />
   <node pkg="rosbot_puck_sorter" type="startup_survey.py" name="startup_survey" output="screen" />
   <node pkg="rosbot_puck_sorter" type="semantic_grid_mapper.py" name="semantic_grid_mapper" output="screen" />

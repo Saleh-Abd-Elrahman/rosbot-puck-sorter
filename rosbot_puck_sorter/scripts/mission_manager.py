@@ -6,7 +6,8 @@ import actionlib
 import rospy
 import tf2_geometry_msgs  # noqa: F401
 import tf2_ros
-from geometry_msgs.msg import Pose, PoseStamped
+from geometry_msgs.msg import Pose, PoseStamped, PoseWithCovarianceStamped
+from nav_msgs.msg import Odometry
 from nav_msgs.srv import GetPlan, GetPlanRequest
 from std_msgs.msg import Bool, Int32, UInt32
 from std_srvs.srv import Trigger
@@ -66,7 +67,11 @@ class MissionManager:
         self.rect_y_max = float(rospy.get_param("~rect_y_max", 4.0))
 
         self.map_frame = rospy.get_param("~map_frame", "map")
+        self.pose_source = str(rospy.get_param("~pose_source", rospy.get_param("~nav_pose_source", "auto"))).strip().lower()
+        self.pose_topic = rospy.get_param("~pose_topic", "/amcl_pose")
+        self.odom_topic = rospy.get_param("~odom_topic", "/odom")
         self.base_frame = rospy.get_param("~base_frame", "base_link")
+        self.odom_frame = rospy.get_param("~odom_frame", "odom")
 
         self.homes = {}
         self.tracks = {}
@@ -107,7 +112,11 @@ class MissionManager:
         rospy.Subscriber("/puck/tracks", PuckTrackArray, self._tracks_cb, queue_size=10)
         rospy.Subscriber("/coverage_search/pass_count", Int32, self._pass_cb, queue_size=10)
         rospy.Subscriber(self.gripper_holding_topic, Bool, self._holding_cb, queue_size=10)
-        rospy.Subscriber("/amcl_pose", rospy.AnyMsg, self._amcl_pose_any_cb, queue_size=1)
+        if self.pose_source in ("auto", "amcl", "pose", "pose_topic"):
+            rospy.Subscriber(self.pose_topic, PoseWithCovarianceStamped, self._pose_cb, queue_size=1)
+        if self.pose_source in ("auto", "odom"):
+            rospy.Subscriber(self.odom_topic, Odometry, self._odom_cb, queue_size=10)
+        self.pose_timer = rospy.Timer(rospy.Duration(0.25), self._pose_timer_cb)
 
         rospy.wait_for_service("/puck_world_model/reserve_target")
         self.reserve_srv = rospy.ServiceProxy("/puck_world_model/reserve_target", ReserveTarget)
@@ -159,21 +168,48 @@ class MissionManager:
                 out.append(c)
         return out
 
-    def _amcl_pose_any_cb(self, _msg):
-        # Parse through TF instead of deserializing AnyMsg to keep this node lightweight and type-agnostic.
-        try:
-            t = self.tf_buffer.lookup_transform(self.map_frame, self.base_frame, rospy.Time(0), timeout=rospy.Duration(0.02))
-        except Exception:
+    @staticmethod
+    def _yaw_from_quat(q):
+        return math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+
+    def _set_robot_pose(self, x, y, yaw):
+        self.robot_x = float(x)
+        self.robot_y = float(y)
+        self.robot_yaw = float(yaw)
+        self.have_robot_pose = True
+
+    def _pose_cb(self, msg):
+        p = msg.pose.pose
+        self._set_robot_pose(p.position.x, p.position.y, self._yaw_from_quat(p.orientation))
+
+    def _odom_cb(self, msg):
+        p = msg.pose.pose
+        self._set_robot_pose(p.position.x, p.position.y, self._yaw_from_quat(p.orientation))
+
+    def _pose_timer_cb(self, _event):
+        if self.pose_source in ("open_loop", "cmd_vel", "cmd_vel_only"):
             return
 
-        self.robot_x = t.transform.translation.x
-        self.robot_y = t.transform.translation.y
+        frames = [(self.map_frame, self.base_frame)]
+        if self.map_frame != self.odom_frame:
+            frames.append((self.odom_frame, self.base_frame))
 
-        q = t.transform.rotation
-        siny = 2.0 * (q.w * q.z + q.x * q.y)
-        cosy = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
-        self.robot_yaw = math.atan2(siny, cosy)
-        self.have_robot_pose = True
+        for target_frame, source_frame in frames:
+            if self.pose_source == "odom" and target_frame != self.odom_frame:
+                continue
+            if self.pose_source in ("amcl", "pose", "pose_topic") and target_frame != self.map_frame:
+                continue
+            if self._update_pose_from_tf(target_frame, source_frame):
+                return
+
+    def _update_pose_from_tf(self, target_frame, source_frame):
+        try:
+            t = self.tf_buffer.lookup_transform(target_frame, source_frame, rospy.Time(0), timeout=rospy.Duration(0.02))
+        except Exception:
+            return False
+
+        self._set_robot_pose(t.transform.translation.x, t.transform.translation.y, self._yaw_from_quat(t.transform.rotation))
+        return True
 
     def _homes_cb(self, msg):
         homes = {}

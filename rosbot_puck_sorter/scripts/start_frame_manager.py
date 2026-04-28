@@ -3,7 +3,8 @@ import math
 
 import rospy
 import tf2_ros
-from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Quaternion, TransformStamped
+from geometry_msgs.msg import Pose, PoseStamped, PoseWithCovarianceStamped, Quaternion, TransformStamped
+from nav_msgs.msg import Odometry
 from std_msgs.msg import Bool
 
 
@@ -30,7 +31,10 @@ class StartFrameManager:
     def __init__(self):
         self.map_frame = rospy.get_param("~map_frame", "map")
         self.start_frame = rospy.get_param("~start_frame", "start")
+        self.pose_source = str(rospy.get_param("~pose_source", "auto")).strip().lower()
         self.amcl_topic = rospy.get_param("~amcl_topic", "/amcl_pose")
+        self.odom_topic = rospy.get_param("~odom_topic", "/odom")
+        self.base_frame = rospy.get_param("~base_frame", "base_link")
         self.publish_rate_hz = float(rospy.get_param("~publish_rate_hz", 15.0))
 
         self.initialized = False
@@ -40,8 +44,11 @@ class StartFrameManager:
         self.start_yaw = 0.0
 
         self.latest_pose = None
+        self.active_pose_source = ""
 
         self.tf_broadcaster = tf2_ros.StaticTransformBroadcaster()
+        self.tf_buffer = None
+        self.tf_listener = None
 
         self.pub_init = rospy.Publisher("/start_frame/initialized", Bool, queue_size=1, latch=True)
         self.pub_origin = rospy.Publisher("/start_frame/origin_map", PoseStamped, queue_size=1, latch=True)
@@ -49,10 +56,21 @@ class StartFrameManager:
 
         self.pub_init.publish(Bool(data=False))
 
-        rospy.Subscriber(self.amcl_topic, PoseWithCovarianceStamped, self._amcl_cb, queue_size=20)
+        if self.pose_source in ("auto", "amcl", "pose", "pose_topic"):
+            rospy.Subscriber(self.amcl_topic, PoseWithCovarianceStamped, self._amcl_cb, queue_size=20)
+        if self.pose_source in ("auto", "odom"):
+            rospy.Subscriber(self.odom_topic, Odometry, self._odom_cb, queue_size=20)
+        if self.pose_source in ("auto", "tf", "odom", "amcl", "pose", "pose_topic"):
+            self.tf_buffer = tf2_ros.Buffer(cache_time=rospy.Duration(10.0))
+            self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
         self.timer = rospy.Timer(rospy.Duration(1.0 / max(1e-3, self.publish_rate_hz)), self._timer_cb)
 
-        rospy.loginfo("start_frame_manager ready: waiting for first %s", self.amcl_topic)
+        rospy.loginfo(
+            "start_frame_manager ready: waiting for pose source=%s amcl=%s odom=%s",
+            self.pose_source,
+            self.amcl_topic,
+            self.odom_topic,
+        )
 
     def _broadcast_start_tf(self):
         tf_msg = TransformStamped()
@@ -80,29 +98,60 @@ class StartFrameManager:
         self.pub_origin.publish(msg)
 
     def _amcl_cb(self, msg):
-        self.latest_pose = msg.pose.pose
+        self._pose_cb(msg.pose.pose, "amcl")
 
+    def _odom_cb(self, msg):
+        self._pose_cb(msg.pose.pose, "odom")
+
+    def _pose_cb(self, pose, source):
+        if self.active_pose_source and source != self.active_pose_source:
+            return
+
+        self.latest_pose = pose
         if self.initialized:
             return
 
-        self.start_x = msg.pose.pose.position.x
-        self.start_y = msg.pose.pose.position.y
-        self.start_z = msg.pose.pose.position.z
-        self.start_yaw = yaw_from_quat(msg.pose.pose.orientation)
+        self.start_x = pose.position.x
+        self.start_y = pose.position.y
+        self.start_z = pose.position.z
+        self.start_yaw = yaw_from_quat(pose.orientation)
 
         self._broadcast_start_tf()
         self._publish_origin()
         self.pub_init.publish(Bool(data=True))
 
         self.initialized = True
+        self.active_pose_source = source
         rospy.loginfo(
-            "start frame initialized at map pose x=%.3f y=%.3f yaw=%.3f rad",
+            "start frame initialized from %s at %s pose x=%.3f y=%.3f yaw=%.3f rad",
+            source,
+            self.map_frame,
             self.start_x,
             self.start_y,
             self.start_yaw,
         )
 
+    def _update_from_tf(self):
+        if self.tf_buffer is None:
+            return False
+        try:
+            t = self.tf_buffer.lookup_transform(self.map_frame, self.base_frame, rospy.Time(0), timeout=rospy.Duration(0.02))
+        except Exception:
+            return False
+
+        pose = Pose()
+        pose.position.x = t.transform.translation.x
+        pose.position.y = t.transform.translation.y
+        pose.position.z = t.transform.translation.z
+        pose.orientation = t.transform.rotation
+        source = "odom" if self.pose_source == "odom" else "tf"
+        self._pose_cb(pose, source)
+        return True
+
     def _timer_cb(self, _event):
+        if self.pose_source in ("auto", "tf", "odom", "amcl", "pose", "pose_topic"):
+            self._update_from_tf()
+
         if not self.initialized or self.latest_pose is None:
             return
 

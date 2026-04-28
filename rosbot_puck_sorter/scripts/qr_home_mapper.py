@@ -54,6 +54,7 @@ class QRHomeMapper:
         self.cx_override = float(rospy.get_param("~cx", 0.0))
         self.cy_override = float(rospy.get_param("~cy", 0.0))
         self.hfov_deg = float(rospy.get_param("~hfov_deg", 70.0))
+        self.map_frame = rospy.get_param("~map_frame", "map")
         self.start_frame = rospy.get_param("~start_frame", "start")
         self.publish_start_relative = bool(rospy.get_param("~publish_start_relative", True))
 
@@ -312,7 +313,7 @@ class QRHomeMapper:
 
     def _publish_homes(self):
         msg = HomeBaseArray()
-        msg.header = Header(stamp=rospy.Time.now(), frame_id="map")
+        msg.header = Header(stamp=rospy.Time.now(), frame_id=self.map_frame)
         msg_start = HomeBaseArray()
         msg_start.header = Header(stamp=rospy.Time.now(), frame_id=self.start_frame)
         for color, entry in self.home_map.items():
@@ -327,7 +328,7 @@ class QRHomeMapper:
             if self.publish_start_relative:
                 pose_msg = PoseStamped()
                 pose_msg.header.stamp = msg_start.header.stamp
-                pose_msg.header.frame_id = "map"
+                pose_msg.header.frame_id = self.map_frame
                 pose_msg.pose = entry["pose"]
                 try:
                     out = self.tf_buffer.transform(pose_msg, self.start_frame, timeout=rospy.Duration(0.1))
