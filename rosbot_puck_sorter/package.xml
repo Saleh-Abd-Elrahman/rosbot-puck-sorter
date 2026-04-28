@@ -2,7 +2,7 @@
 <package format="2">
   <name>rosbot_puck_sorter</name>
   <version>0.1.0</version>
-  <description>ROS 1 package for QR-mapped color puck sorting with RGB-D and servo gripper.</description>
+  <description>ROS 1 package for reactive RGB-D color puck sorting with ArUco homes and a servo gripper.</description>
 
   <maintainer email="you@example.com">salehabdelrahman</maintainer>
   <license>MIT</license>

@@ -3,6 +3,7 @@ image_topic: /camera/color/image_raw
 depth_topic: /camera/aligned_depth_to_color/image_raw
 camera_info_topic: /camera/color/camera_info
 process_rate_hz: 12.0
+require_map_tf: false
 depth_min_m: 0.15
 depth_max_m: 1.80
 roi_bottom_crop: 0.15

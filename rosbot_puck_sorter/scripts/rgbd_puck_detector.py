@@ -23,6 +23,7 @@ class RGBDPuckDetector:
         self.depth_topic = rospy.get_param("~depth_topic", "/camera/aligned_depth_to_color/image_raw")
         self.camera_info_topic = rospy.get_param("~camera_info_topic", "/camera/color/camera_info")
         self.process_rate_hz = float(rospy.get_param("~process_rate_hz", 12.0))
+        self.require_map_tf = bool(rospy.get_param("~require_map_tf", False))
 
         self.depth_min_m = rospy.get_param("~depth_min_m", 0.15)
         self.depth_max_m = rospy.get_param("~depth_max_m", 1.80)
@@ -130,7 +131,8 @@ class RGBDPuckDetector:
             out = self.tf_buffer.transform(ps, self.map_frame, timeout=rospy.Duration(0.08))
             return out.point
         except Exception as exc:
-            rospy.logwarn_throttle(2.0, "skipping puck detection; no TF %s -> %s: %s", cam_frame, self.map_frame, exc)
+            if self.require_map_tf:
+                rospy.logwarn_throttle(2.0, "skipping puck detection; no TF %s -> %s: %s", cam_frame, self.map_frame, exc)
             return None
 
     def _rgbd_cb(self, rgb_msg, depth_msg):
@@ -199,7 +201,9 @@ class RGBDPuckDetector:
 
                 point_map = self._to_map(rgb_msg.header.frame_id, x_cam, y_cam, z_cam, rgb_msg.header.stamp)
                 if point_map is None:
-                    continue
+                    if self.require_map_tf:
+                        continue
+                    point_map = Point(x=x_cam, y=y_cam, z=z_cam)
 
                 det = PuckDetection()
                 det.header = rgb_msg.header

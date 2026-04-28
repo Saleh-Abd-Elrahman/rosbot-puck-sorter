@@ -66,6 +66,7 @@ catkin_package(
 
 catkin_install_python(PROGRAMS
   scripts/mission_manager.py
+  scripts/challenge_manager.py
   scripts/cmd_vel_dead_reckoner.py
   scripts/start_frame_manager.py
   scripts/startup_survey.py

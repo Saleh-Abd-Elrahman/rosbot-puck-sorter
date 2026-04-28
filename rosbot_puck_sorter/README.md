@@ -1,14 +1,16 @@
 # rosbot_puck_sorter (ROS 1 Noetic)
 
 ROS 1 package for color puck sorting with:
-- ArUco-marker-based dynamic home mapping (`red`, `green`, `blue`)
-- Continuous RGB-D puck detection and world tracking
-- Pick/place action with servo gripper control through an Arduino Nano over `rosserial`
-- Coverage search when no valid targets are available
+- reactive no-AMCL challenge runner for a 210x280 cm arena
+- RGB-D puck detection for red, green, and blue pucks
+- visual ArUco home finding (`ID 1 -> red`, `ID 2 -> green`, `ID 3 -> blue`)
+- servo gripper control through an Arduino Nano over `rosserial`
+- direct `/cmd_vel` driving with front wall safety from `/scan` and/or depth
 
 ## Package contents
 
-- `scripts/mission_manager.py`: mission FSM and orchestration
+- `scripts/challenge_manager.py`: main reactive challenge runner used by `mission.launch`
+- `scripts/mission_manager.py`: legacy map/waypoint mission FSM
 - `scripts/start_frame_manager.py`: captures initial odom/pose and publishes start-relative frame/topics
 - `scripts/cmd_vel_dead_reckoner.py`: optional fallback odom/TF publisher from commanded velocity
 - `scripts/startup_survey.py`: startup 360 rotation scan for ArUco homes + puck observations
@@ -25,11 +27,15 @@ ROS 1 package for color puck sorting with:
 
 ### Published topics
 - `/puck/detections` (`rosbot_puck_sorter/PuckDetectionArray`)
+- `/mission/state` (`rosbot_puck_sorter/MissionState`)
+- `/cmd_vel`
+- `/gripper/state`, `/gripper/holding_object`
+
+Legacy nodes can also publish:
 - `/puck/tracks` (`rosbot_puck_sorter/PuckTrackArray`)
 - `/puck/tracks_start` (`rosbot_puck_sorter/PuckTrackArray`, frame_id=`start`)
 - `/home_bases` (`rosbot_puck_sorter/HomeBaseArray`)
 - `/home_bases_start` (`rosbot_puck_sorter/HomeBaseArray`, frame_id=`start`)
-- `/mission/state` (`rosbot_puck_sorter/MissionState`)
 - `/mission/current_target` (`rosbot_puck_sorter/PuckTrack`)
 - `/start_frame/initialized` (`std_msgs/Bool`)
 - `/start_frame/origin_map` (`geometry_msgs/PoseStamped`)
@@ -39,18 +45,18 @@ ROS 1 package for color puck sorting with:
 - `/semantic_map/grid` (`nav_msgs/OccupancyGrid`, frame_id=`start`)
 - `/semantic_map/homes` (`rosbot_puck_sorter/HomeBaseArray`, frame_id=`start`)
 - `/semantic_map/pucks` (`rosbot_puck_sorter/PuckTrackArray`, frame_id=`start`)
-- `/cmd_vel`
 - `/coverage_search/pass_count`
-- `/gripper/state`, `/gripper/holding_object`
 
 ### Services
+- `/gripper/set` (`rosbot_puck_sorter/SetGripper`)
+
+Legacy nodes can also expose:
 - `/scan_homes` (`rosbot_puck_sorter/ScanHomes`)
 - `/startup_survey/run` (`std_srvs/Trigger`)
 - `/semantic_map/rebuild` (`std_srvs/Trigger`)
 - `/puck_world_model/reserve_target` (`rosbot_puck_sorter/ReserveTarget`)
 - `/coverage_search/perform_pass` (`std_srvs/Trigger`)
 - `/fine_align/execute` (`std_srvs/Trigger`)
-- `/gripper/set` (`rosbot_puck_sorter/SetGripper`)
 
 ### Actions
 - `/pick_and_place` (`rosbot_puck_sorter/PickAndPlaceAction`)
@@ -59,12 +65,11 @@ ROS 1 package for color puck sorting with:
 
 Launch these separately (robot-specific):
 - camera driver (RGB-D topics)
-- LiDAR driver
-- odometry (`/odom` plus `odom -> base_link` TF); AMCL is optional
+- LiDAR `/scan` if available; depth image safety is also used
 - base motor driver (subscribes to `/cmd_vel`)
 - Arduino Nano gripper firmware from [gripper_rosserial.ino](/Users/salehabdelrahman/Desktop/Rob_Lab_Proj/arduino/gripper_rosserial/gripper_rosserial.ino)
 
-`move_base` is not required for this package anymore. The mission nodes drive the robot through direct `geometry_msgs/Twist` commands on `/cmd_vel`, using `/odom` or TF pose feedback for simple point-to-point motion. If your robot only exposes `/cmd_vel`, launch with `enable_cmd_vel_dead_reckoner:=true` to publish approximate odom from commanded velocity.
+`move_base`, AMCL, `/odom`, and corner waypoints are not required for the main challenge runner. The robot searches in place, approaches visible pucks/markers with camera/depth feedback, and never drives to hard-coded arena coordinates.
 
 ## Build
 
@@ -89,38 +94,22 @@ sudo apt install python3-serial
 roslaunch rosbot_puck_sorter mission.launch
 ```
 
-For no-AMCL operation, leave the default configs on `map_frame: odom` and verify:
+The mission launch starts:
+- `rgbd_puck_detector.py`
+- `gripper_controller.py`
+- `challenge_manager.py`
 
-```bash
-rostopic echo -n1 /odom
-rosrun tf tf_echo odom base_link
-```
-
-If both commands fail but `/cmd_vel` moves the robot, use:
-
-```bash
-roslaunch rosbot_puck_sorter mission.launch enable_cmd_vel_dead_reckoner:=true
-```
-
-In no-AMCL mode, automatic corner driving is disabled by default
-(`home_scan_required: false`) because `config/qr_home_mapper.yaml`
-corner waypoints must match your physical arena. The mission waits in
-`WAITING_FOR_HOMES` until startup survey or another publisher provides
-`/home_bases`.
+It does not start the old home-scan, coverage, world-model, or pick/place action stack.
 
 ## Marker setup (ArUco)
 
-- `config/qr_home_mapper.yaml` now defaults to `marker_mode: aruco`.
-- Set `aruco_dictionary` to your marker family (for example `DICT_4X4_50`).
-- Set `aruco_id_to_color` so each marker id maps to one home color:
-  - `\"0\": red`
-  - `\"1\": green`
-  - `\"2\": blue`
+- `config/challenge_manager.yaml` maps marker IDs to colors:
+  - `"1": red`
+  - `"2": green`
+  - `"3": blue`
+- Set `aruco_dictionary` to your marker family, for example `DICT_4X4_50`.
 - Set `marker_size_m` to the real printed marker side length in meters (for distance estimation).
-- Distance uses camera intrinsics from `camera_info_topic` by default (`use_camera_info_intrinsics: true`).
-  - You can override with `fx`, `fy`, `cx`, `cy` params.
-  - If intrinsics are unavailable, fallback estimation uses `hfov_deg`.
-- QR payload mode is still available by setting `marker_mode: qr` and using `qr_expected_codes`.
+- Distance uses camera intrinsics from `camera_info_topic` by default.
 
 ## Gripper Setup (Professor `rosserial` workflow)
 
@@ -153,65 +142,34 @@ rostopic pub /servo std_msgs/UInt16 "data: 170" -1
 rostopic echo /servoLoad
 ```
 
-## Startup Survey Behavior
+## Main Challenge Behavior
 
-- At mission start, `mission_manager` calls `/startup_survey/run` first.
-- `startup_survey` rotates in place ~360 degrees and:
-  - detects ArUco homes and stores start-frame relative position + distance
-  - collects puck detections during the same rotation and stores start-frame positions
-- Results are published on:
-  - `/startup_survey/homes_start`
-  - `/startup_survey/pucks_start`
-- Snapshot is saved to:
-  - `~/.ros/rosbot_puck_sorter_startup_survey.json` (configurable in `config/startup_survey.yaml`)
+`challenge_manager.py` runs one color at a time:
 
-## Target Selection (Efficiency-First)
+1. Rotate in place until a not-yet-delivered puck color is visible.
+2. Use the puck's camera-frame `x` and depth to center and approach it.
+3. Close the gripper through `/gripper/set`.
+4. Rotate in place until the matching ArUco marker is visible.
+5. Approach the marker to `marker_place_distance_m`.
+6. Open the gripper and retreat.
 
-- Mission manager uses cost-optimal selection (default `target_policy: cost_optimal`).
-- One-puck-per-color mode is enabled by default (`single_puck_per_color: true`), with expected colors from `expected_colors: [red, green, blue]`.
-- Once a color is successfully delivered, that color is marked complete and no further puck of that color is selected.
-- For each candidate puck, score is based on:
-  - estimated `robot -> puck` cost
-  - estimated `puck -> corresponding_home` cost
-  - penalties (low confidence, prior failures, wall proximity, turn effort)
-- Optional one-step lookahead evaluates likely next cycle cost and biases the first choice.
-- If `/move_base/make_plan` is available and `use_make_plan_cost: true`, path length is used; otherwise Euclidean fallback is used.
-- Dynamic replanning is applied after every completed drop (next best puck is recomputed).
-- Coverage search only triggers after no viable target is available for a timeout window (`search_trigger_s`).
-- Mission ends when all `expected_colors` are delivered (strict mode), or by empty-area verification if strict mode is disabled.
-
-## Pickup Verification
-
-- `pick_place_server` defaults to `pickup_verify_mode: vision_plus_servo`.
-- A pickup is accepted when either load-backed `/gripper/holding_object` confirms a hold, or the target puck was still visible at the post-approach grasp pose and then disappears from `/puck/detections` near the pick pose.
-- Delivery is only reported after the release command is followed by a fresh `/gripper/holding_object: false` state.
-- If navigation or release confirmation fails after a verified pickup, the original track is marked `LOST` so the mission will not chase the old floor pose; vision can create a new track if the puck is seen again.
-- With the default final approach distance, load feedback should stay enabled because the puck may be too close for RGB-D vision at the grasp pose. Without load feedback, `/gripper/holding_object` is not treated as a confirmed hold unless `assume_holding_without_feedback: true` is set.
-
-## Semantic Map (Option 2)
-
-- `semantic_grid_mapper` subscribes to startup survey outputs (and optionally dynamic puck tracks) and publishes:
-  - occupancy grid (`/semantic_map/grid`)
-  - home object layer (`/semantic_map/homes`)
-  - puck object layer (`/semantic_map/pucks`)
-- Grid is defined in `start` frame using configurable rectangle bounds and resolution.
-- Objects are painted into the grid while preserving dedicated semantic topics for exact object identities.
-- Tune in `config/semantic_map.yaml`:
-  - grid bounds/resolution
-  - wall/home/puck paint radii and occupancy values
-  - dynamic puck tracking behavior
+It does not need pre-known home poses. A home is the matching ArUco marker currently visible in the camera.
 
 ## Tuning checklist
 
-1. Update `config/qr_home_mapper.yaml` corner waypoints to your arena odom/start coordinates before enabling `home_scan_required`.
-2. Tune HSV thresholds in `config/puck_color_hsv.yaml` under your actual lighting.
-3. Tune coverage bounds in `config/coverage_search.yaml`.
-4. Set `config/gripper.yaml` for the `rosserial` topics and calibrate `open_angle_deg` / `close_angle_deg`.
-5. Verify the ROSbot base driver is subscribed to `/cmd_vel`.
-6. Keep `config/start_frame.yaml` on `pose_source: odom` for no-AMCL operation.
-7. Tune `config/startup_survey.yaml` (rotation speed, marker size, snapshot path).
-8. Tune `config/semantic_map.yaml` (occupancy grid bounds/resolution/object painting).
-9. Tune `config/mission_manager.yaml` selection weights (`lookahead`, penalties, `search_trigger_s`, `use_make_plan_cost`).
+1. Tune HSV thresholds in `config/puck_color_hsv.yaml` under your actual lighting.
+2. Set `marker_size_m`, `aruco_dictionary`, and `marker_id_to_color` in `config/challenge_manager.yaml`.
+3. Tune `pickup_target_depth_m` and `marker_place_distance_m` in `config/challenge_manager.yaml`.
+4. Keep `front_stop_distance_m` conservative until wall safety is proven.
+5. Set `config/gripper.yaml` for the `rosserial` topics and calibrate `open_angle_deg` / `close_angle_deg`.
+6. Verify the ROSbot base driver is subscribed to `/cmd_vel`.
+
+## Legacy Stack
+
+The older map/waypoint stack is still in the repo for reference and tests:
+`mission_manager.py`, `pick_place_server.py`, `coverage_search.py`,
+`qr_home_mapper.py`, `startup_survey.py`, `puck_world_model.py`, and
+`semantic_grid_mapper.py`. It is not launched by `mission.launch`.
 
 ## Module Tests
 
@@ -242,12 +200,10 @@ roscore
 rosrun rosbot_puck_sorter test_aruco_live_camera.py _image_topic:=/camera/color/image_raw _aruco_dictionary:=DICT_4X4_50 _expected_ids:=\"[0,1,2]\" _stable_reads_required:=8 _timeout_s:=30
 ```
 
-If your marker IDs differ, update `_expected_ids` and `config/qr_home_mapper.yaml` (`aruco_id_to_color`).
+If your marker IDs differ, update `_expected_ids` and `config/challenge_manager.yaml` (`marker_id_to_color`).
 
 ## Notes
 
 - Red uses two HSV hue ranges (`red1`, `red2`) due hue wraparound in OpenCV.
-- Home bases are stored as full map-frame `Pose` (`x`, `y`, `z` + orientation).
-- `HomeBase` now includes `marker_distance_m` from ArUco pose estimation (meters; `-1.0` when unavailable).
-- Navigation now runs in `odom` by default so AMCL is not required; start-relative telemetry is published in `start`.
+- The main challenge runner does not store map-frame home poses.
 - Gripper hold detection uses load feedback by default; tune `load_feedback_threshold_ma` in [gripper.yaml](/Users/salehabdelrahman/Desktop/Rob_Lab_Proj/rosbot_puck_sorter/config/gripper.yaml) after checking `/servoLoad`.

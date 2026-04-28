@@ -1,0 +1,13 @@
+<launch>
+  <arg name="enable_gripper_controller" default="true" />
+
+  <rosparam command="load" file="$(find rosbot_puck_sorter)/config/puck_color_hsv.yaml" ns="rgbd_puck_detector" />
+  <rosparam command="load" file="$(find rosbot_puck_sorter)/config/rgbd_puck_detector.yaml" ns="rgbd_puck_detector" />
+  <rosparam command="load" file="$(find rosbot_puck_sorter)/config/gripper.yaml" ns="gripper_controller" />
+  <rosparam command="load" file="$(find rosbot_puck_sorter)/config/challenge_manager.yaml" ns="challenge_manager" />
+
+  <!-- Robot-specific drivers still run separately: camera/depth, optional /scan, base driver, and rosserial_python. -->
+  <node pkg="rosbot_puck_sorter" type="rgbd_puck_detector.py" name="rgbd_puck_detector" output="screen" />
+  <node if="$(arg enable_gripper_controller)" pkg="rosbot_puck_sorter" type="gripper_controller.py" name="gripper_controller" output="screen" />
+  <node pkg="rosbot_puck_sorter" type="challenge_manager.py" name="challenge_manager" output="screen" />
+</launch>
