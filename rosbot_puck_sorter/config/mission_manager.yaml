@@ -7,7 +7,6 @@ startup_validation_timeout_s: 2.5
 skip_corner_scan_if_startup_valid: true
 
 target_policy: cost_optimal
-replan_if_better_target: true
 single_puck_per_color: true
 expected_colors: [red, green, blue]
 require_all_expected_colors: true

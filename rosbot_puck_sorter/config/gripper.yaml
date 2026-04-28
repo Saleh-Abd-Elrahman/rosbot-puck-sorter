@@ -3,7 +3,8 @@ servo_topic: /servo
 servo_load_topic: /servoLoad
 require_servo_subscriber: true
 servo_subscriber_wait_s: 2.0
-use_load_feedback: false
+use_load_feedback: true
+assume_holding_without_feedback: false
 load_feedback_threshold_ma: 120.0
 load_feedback_timeout_s: 2.0
 

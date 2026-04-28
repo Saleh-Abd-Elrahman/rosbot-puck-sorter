@@ -33,11 +33,14 @@ def main():
     rospy.init_node("test_pick_place_server")
 
     rospy.set_param("~pregrasp_offset_m", 0.15)
+    rospy.set_param("~final_approach_m", 0.0)
     rospy.set_param("~grasp_close_wait_s", 0.01)
     rospy.set_param("~place_open_wait_s", 0.01)
+    rospy.set_param("~release_verify_timeout_s", 0.0)
     rospy.set_param("~retreat_distance_m", 0.05)
     rospy.set_param("~stage_retry_count", 0)
     rospy.set_param("~use_fine_align", True)
+    rospy.set_param("~pickup_verify_mode", "none")
 
     rospy.Service("/gripper/set", SetGripper, gripper_cb)
     rospy.Service("/fine_align/execute", Trigger, fine_align_cb)

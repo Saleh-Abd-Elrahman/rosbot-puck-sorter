@@ -37,6 +37,7 @@ class PuckWorldModel:
 
         self.update_rate_hz = rospy.get_param("~update_rate_hz", 15.0)
         self.association_max_dist_m = rospy.get_param("~association_max_dist_m", 0.18)
+        self.association_max_dt_s = rospy.get_param("~association_max_dt_s", 1.0)
         self.confirm_hits_required = int(rospy.get_param("~confirm_hits_required", 3))
         self.misses_to_lost = int(rospy.get_param("~misses_to_lost", 8))
         self.track_ttl_s = rospy.get_param("~track_ttl_s", 10.0)
@@ -70,6 +71,7 @@ class PuckWorldModel:
         rospy.Subscriber("/amcl_pose", PoseWithCovarianceStamped, self._amcl_pose_cb, queue_size=10)
         rospy.Subscriber("/puck_world_model/delivered_track", UInt32, self._delivered_cb, queue_size=10)
         rospy.Subscriber("/puck_world_model/release_track", UInt32, self._release_cb, queue_size=10)
+        rospy.Subscriber("/puck_world_model/lost_track", UInt32, self._lost_cb, queue_size=10)
 
         self.srv_reserve = rospy.Service("/puck_world_model/reserve_target", ReserveTarget, self._reserve_target)
         self.timer = rospy.Timer(rospy.Duration(1.0 / max(1e-3, self.update_rate_hz)), self._timer_cb)
@@ -121,12 +123,15 @@ class PuckWorldModel:
             return None
 
     def _associate(self, color, pose):
+        now = rospy.Time.now()
         best_id = None
         best_dist = 1e9
         for tid, tr in self.tracks.items():
             if tr.color != color:
                 continue
             if tr.state in ("DELIVERED", "LOST"):
+                continue
+            if self.association_max_dt_s > 0.0 and (now - tr.last_seen).to_sec() > self.association_max_dt_s:
                 continue
             dist = self._distance_pose(tr.pose_map, pose)
             if dist < self.association_max_dist_m and dist < best_dist:
@@ -152,7 +157,7 @@ class PuckWorldModel:
                         color=det.color,
                         pose_map=pose,
                         confidence=float(self.conf_init),
-                        state="DETECTED",
+                        state="DETECTED" if self.confirm_hits_required <= 1 else "CANDIDATE",
                         miss_count=0,
                         last_seen=now,
                         hits=1,
@@ -168,6 +173,8 @@ class PuckWorldModel:
                     tr.miss_count = 0
                     tr.last_seen = now
                     tr.hits += 1
+                    if tr.state == "CANDIDATE" and tr.hits >= self.confirm_hits_required:
+                        tr.state = "DETECTED"
                     if tr.state == "LOST":
                         tr.state = "DETECTED"
                     if tr.state == "RESERVED" and (now - tr.reserved_at).to_sec() > self.reserve_timeout_s:
@@ -179,6 +186,12 @@ class PuckWorldModel:
                 if tid in touched:
                     continue
                 if tr.state in ("DELIVERED", "LOST"):
+                    continue
+                if tr.state == "RESERVED":
+                    if (now - tr.reserved_at).to_sec() > self.reserve_timeout_s:
+                        tr.state = "DETECTED"
+                        tr.miss_count = 0
+                        tr.last_seen = now
                     continue
                 tr.miss_count += 1
                 tr.confidence = max(0.0, tr.confidence - self.conf_miss_decay)
@@ -197,6 +210,18 @@ class PuckWorldModel:
             tr = self.tracks.get(msg.data)
             if tr and tr.state == "RESERVED":
                 tr.state = "DETECTED"
+                tr.miss_count = 0
+                tr.last_seen = rospy.Time.now()
+                tr.confidence = max(tr.confidence, self.conf_valid_min)
+
+    def _lost_cb(self, msg):
+        with self.lock:
+            tr = self.tracks.get(msg.data)
+            if tr and tr.state != "DELIVERED":
+                tr.state = "LOST"
+                tr.confidence = 0.0
+                tr.miss_count = self.misses_to_lost
+                tr.last_seen = rospy.Time.now()
 
     def _select_candidate(self, strategy):
         if isinstance(strategy, str) and strategy.startswith("id:"):
@@ -250,6 +275,7 @@ class PuckWorldModel:
 
             tr.state = "RESERVED"
             tr.reserved_at = rospy.Time.now()
+            tr.miss_count = 0
             return ReserveTargetResponse(
                 success=True,
                 track_id=tr.track_id,
@@ -264,6 +290,8 @@ class PuckWorldModel:
             for tr in self.tracks.values():
                 if tr.state == "RESERVED" and (now - tr.reserved_at).to_sec() > self.reserve_timeout_s:
                     tr.state = "DETECTED"
+                    tr.miss_count = 0
+                    tr.last_seen = now
                 if tr.state in ("DELIVERED",):
                     continue
                 if (now - tr.last_seen).to_sec() > self.track_ttl_s and tr.state != "RESERVED":
@@ -289,7 +317,12 @@ class PuckWorldModel:
                     if b.state in ("DELIVERED", "LOST"):
                         continue
                     if self._distance_pose(a.pose_map, b.pose_map) <= self.merge_dist_m:
-                        keep, drop = (a_id, b_id) if a.confidence >= b.confidence else (b_id, a_id)
+                        if a.state == "RESERVED" and b.state != "RESERVED":
+                            keep, drop = a_id, b_id
+                        elif b.state == "RESERVED" and a.state != "RESERVED":
+                            keep, drop = b_id, a_id
+                        else:
+                            keep, drop = (a_id, b_id) if a.confidence >= b.confidence else (b_id, a_id)
                         removed.add(drop)
                         self.tracks[keep].confidence = max(self.tracks[keep].confidence, self.tracks[drop].confidence)
 

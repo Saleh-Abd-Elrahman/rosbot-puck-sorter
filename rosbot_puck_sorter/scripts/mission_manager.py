@@ -444,6 +444,24 @@ class MissionManager:
                     best_by_color[c["color"]] = c
             candidates = list(best_by_color.values())
 
+        policy = str(self.target_policy).strip().lower()
+        if policy in ("nearest", "nearest_reachable"):
+            for c in candidates:
+                c["score_total"] = c["to_pick"] + c["penalty"]
+                c["lookahead"] = 0.0
+            candidates.sort(key=lambda x: x["score_total"])
+            return candidates[0]
+
+        if policy == "highest_confidence":
+            for c in candidates:
+                c["score_total"] = -float(c["track"].confidence) + 0.1 * c["penalty"]
+                c["lookahead"] = 0.0
+            candidates.sort(key=lambda x: x["score_total"])
+            return candidates[0]
+
+        if policy not in ("cost_optimal", "cost", ""):
+            rospy.logwarn_throttle(10.0, "unknown target_policy '%s'; using cost_optimal", self.target_policy)
+
         candidates.sort(key=lambda x: x["primary"])
         if self.lookahead_top_k > 0:
             pool = candidates[: min(len(candidates), self.lookahead_top_k)]
@@ -592,6 +610,13 @@ class MissionManager:
             if self.goal_in_flight:
                 if self.pick_client.wait_for_result(rospy.Duration(0.0)):
                     self._handle_action_result()
+                self._publish_state()
+                rate.sleep()
+                continue
+
+            if self.holding_object:
+                self.state = "WAITING_FOR_RELEASE"
+                self.note = "gripper still reports a held puck; waiting for release confirmation"
                 self._publish_state()
                 rate.sleep()
                 continue

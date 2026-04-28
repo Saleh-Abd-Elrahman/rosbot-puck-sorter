@@ -22,6 +22,7 @@ class RGBDPuckDetector:
         self.image_topic = rospy.get_param("~image_topic", "/camera/color/image_raw")
         self.depth_topic = rospy.get_param("~depth_topic", "/camera/aligned_depth_to_color/image_raw")
         self.camera_info_topic = rospy.get_param("~camera_info_topic", "/camera/color/camera_info")
+        self.process_rate_hz = float(rospy.get_param("~process_rate_hz", 12.0))
 
         self.depth_min_m = rospy.get_param("~depth_min_m", 0.15)
         self.depth_max_m = rospy.get_param("~depth_max_m", 1.80)
@@ -42,6 +43,7 @@ class RGBDPuckDetector:
 
         self.camera_lock = threading.Lock()
         self.fx = self.fy = self.cx = self.cy = None
+        self.last_process_time = rospy.Time(0)
 
         self.tf_buffer = tf2_ros.Buffer(cache_time=rospy.Duration(10.0))
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
@@ -132,6 +134,13 @@ class RGBDPuckDetector:
             return None
 
     def _rgbd_cb(self, rgb_msg, depth_msg):
+        if self.process_rate_hz > 0.0:
+            now = rospy.Time.now()
+            min_period = 1.0 / self.process_rate_hz
+            if self.last_process_time != rospy.Time(0) and (now - self.last_process_time).to_sec() < min_period:
+                return
+            self.last_process_time = now
+
         try:
             bgr = self.bridge.imgmsg_to_cv2(rgb_msg, desired_encoding="bgr8")
             depth = self.bridge.imgmsg_to_cv2(depth_msg, desired_encoding="passthrough")

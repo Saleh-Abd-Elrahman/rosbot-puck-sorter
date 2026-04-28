@@ -8,7 +8,6 @@ waypoint_reached_tol_m: 0.15
 use_fixed_yaw: false
 yaw_at_waypoint_rad: 0.0
 scan_dwell_s: 1.0
-max_passes_before_finish_check: 2
 pose_topic: /amcl_pose
 cmd_topic: /cmd_vel
 goal_xy_tolerance_m: 0.15

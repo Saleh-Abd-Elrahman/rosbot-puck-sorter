@@ -344,7 +344,7 @@ class StartupSurvey:
         summary = {}
         for color in ["red", "green", "blue"]:
             obs = self.home_obs[color]
-            if not obs:
+            if len(obs) < self.stable_reads_required:
                 continue
 
             xs = np.array([o["x"] for o in obs], dtype=np.float32)

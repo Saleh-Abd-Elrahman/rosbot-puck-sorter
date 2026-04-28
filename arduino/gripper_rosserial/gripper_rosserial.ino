@@ -31,8 +31,9 @@ ros::Subscriber<std_msgs::UInt16> sub("servo", servo_cb);
 ros::Publisher pub_servo_load("servoLoad", &load_msg);
 
 float read_load_ma() {
-  // Matches the conversion shown in the lecture slide.
-  return (((analogRead(LOAD_PIN) * 5.0f) / 1023.0f) / 2.0f);
+  // Sensor conversion from the lecture slide returns amps; publish milliamps
+  // so /servoLoad matches gripper.yaml's load_feedback_threshold_ma.
+  return ((((analogRead(LOAD_PIN) * 5.0f) / 1023.0f) / 2.0f) * 1000.0f);
 }
 
 void setup() {

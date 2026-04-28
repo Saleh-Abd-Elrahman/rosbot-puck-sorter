@@ -20,9 +20,8 @@ The ROS package is in:
 - RGB-D camera driver
 - LiDAR driver
 - ROSbot base driver that accepts `geometry_msgs/Twist` on `/cmd_vel`
-- Arduino Nano connected by USB serial to the ROSbot for gripper control
-- `python3-serial`
-- `twist_mux` (recommended for `/cmd_vel` arbitration)
+- Arduino Nano running `rosserial` for gripper control
+- `rosserial_python`
 
 ## Build
 
@@ -42,8 +41,8 @@ Launch your robot bringup first so these are already running:
 - RGB-D camera
 - LiDAR
 - localization (`amcl`)
-- base driver
-- `twist_mux` or equivalent routing of `/cmd_vel_nav` and `/cmd_vel_align` to the robot `/cmd_vel`
+- base driver subscribed to `/cmd_vel`
+- `rosrun rosserial_python serial_node.py /dev/ttyUSB0` for the gripper Arduino
 
 Then:
 
@@ -57,15 +56,17 @@ Tune these files before first real run:
 - `rosbot_puck_sorter/config/qr_home_mapper.yaml` (corner waypoints)
 - `rosbot_puck_sorter/config/puck_color_hsv.yaml` (color thresholds)
 - `rosbot_puck_sorter/config/coverage_search.yaml` (arena bounds)
-- `rosbot_puck_sorter/config/gripper.yaml` (USB serial port + gripper angles)
+- `rosbot_puck_sorter/config/gripper.yaml` (`rosserial` topics + gripper angles)
 - `rosbot_puck_sorter/config/start_frame.yaml` (startup-relative `start` frame)
 
 For ArUco markers, set `aruco_dictionary` and `aruco_id_to_color` in
 `rosbot_puck_sorter/config/qr_home_mapper.yaml`.
 
 For the gripper:
-- upload [gripper_serial_bridge.ino](/Users/salehabdelrahman/Desktop/Rob_Lab_Proj/arduino/gripper_serial_bridge/gripper_serial_bridge.ino) to the Arduino Nano
-- set the Nano USB device path in `rosbot_puck_sorter/config/gripper.yaml` (`serial_port`)
+- upload [gripper_rosserial.ino](/Users/salehabdelrahman/Desktop/Rob_Lab_Proj/arduino/gripper_rosserial/gripper_rosserial.ino) to the Arduino Nano
+- wire the current/load sensor to Arduino `A0` for the default pickup verification
+- run `rosrun rosserial_python serial_node.py /dev/ttyUSB0`
+- keep `backend: rosserial_topic` in `rosbot_puck_sorter/config/gripper.yaml`
 
 ## Tests
 

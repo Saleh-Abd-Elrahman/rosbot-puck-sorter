@@ -2,7 +2,6 @@ corner_waypoints:
   - {x: 0.40, y: 0.40, yaw: 0.0}
   - {x: 4.60, y: 0.40, yaw: 1.57}
   - {x: 0.40, y: 3.60, yaw: -1.57}
-corner_standoff_m: 0.35
 marker_mode: aruco
 aruco_dictionary: DICT_4X4_50
 aruco_id_to_color:
@@ -13,7 +12,6 @@ qr_expected_codes: [HOME_RED, HOME_GREEN, HOME_BLUE]
 scan_timeout_s: 12.0
 scan_retries: 2
 yaw_tolerance_rad: 0.20
-min_qr_size_px: 80
 marker_size_m: 0.05
 min_aruco_perimeter_px: 80.0
 max_marker_distance_m: 0.0

@@ -38,7 +38,7 @@ ROS 1 package for color puck sorting with:
 - `/semantic_map/grid` (`nav_msgs/OccupancyGrid`, frame_id=`start`)
 - `/semantic_map/homes` (`rosbot_puck_sorter/HomeBaseArray`, frame_id=`start`)
 - `/semantic_map/pucks` (`rosbot_puck_sorter/PuckTrackArray`, frame_id=`start`)
-- `/cmd_vel_align`, `/cmd_vel_nav`
+- `/cmd_vel`
 - `/coverage_search/pass_count`
 - `/gripper/state`, `/gripper/holding_object`
 
@@ -61,10 +61,9 @@ Launch these separately (robot-specific):
 - LiDAR driver
 - localization (`amcl`)
 - base motor driver (subscribes to `/cmd_vel`)
-- `twist_mux` configured to arbitrate `/cmd_vel_nav` and `/cmd_vel_align`
 - Arduino Nano gripper firmware from [gripper_rosserial.ino](/Users/salehabdelrahman/Desktop/Rob_Lab_Proj/arduino/gripper_rosserial/gripper_rosserial.ino)
 
-`move_base` is not required for this package anymore. The mission nodes drive the robot through direct `geometry_msgs/Twist` commands on `/cmd_vel_nav`, using AMCL pose feedback for simple point-to-point motion.
+`move_base` is not required for this package anymore. The mission nodes drive the robot through direct `geometry_msgs/Twist` commands on `/cmd_vel`, using AMCL pose feedback for simple point-to-point motion.
 
 ## Build
 
@@ -107,7 +106,8 @@ roslaunch rosbot_puck_sorter mission.launch
 
 - Upload [gripper_rosserial.ino](/Users/salehabdelrahman/Desktop/Rob_Lab_Proj/arduino/gripper_rosserial/gripper_rosserial.ino) to the Nano.
 - Generate `ros_lib` for the Arduino IDE if your setup does not already have it.
-- Wire the servo signal to pin `9` and the current/load sensor to `A0` if you are using load feedback.
+- Wire the servo signal to pin `9` and the current/load sensor to `A0`; the default pickup verification uses this load feedback.
+- Re-upload this firmware after changes; `/servoLoad` is published in milliamps to match `load_feedback_threshold_ma`.
 - On the robot computer connected to the Nano, run:
 
 ```bash
@@ -116,13 +116,14 @@ rosrun rosserial_python serial_node.py /dev/ttyUSB0
 
 - The Nano exposes:
   - `/servo` (`std_msgs/UInt16`) for angle commands
-  - `/servoLoad` (`std_msgs/Float32`) for reported load/current
+  - `/servoLoad` (`std_msgs/Float32`) for reported load in milliamps
 - This package now defaults to:
   - `backend: rosserial_topic`
   - `servo_topic: /servo`
   - `servo_load_topic: /servoLoad`
   - `open_angle_deg: 0`
   - `close_angle_deg: 170`
+- `/gripper/holding_object` reports a confirmed object hold from load feedback by default, unless `use_load_feedback` is disabled and `assume_holding_without_feedback` is explicitly set to `true`.
 - The rest of the sorter still uses `/gripper/set`, so mission code does not need to change.
 - You can also test the hardware directly with:
 
@@ -159,6 +160,14 @@ rostopic echo /servoLoad
 - Coverage search only triggers after no viable target is available for a timeout window (`search_trigger_s`).
 - Mission ends when all `expected_colors` are delivered (strict mode), or by empty-area verification if strict mode is disabled.
 
+## Pickup Verification
+
+- `pick_place_server` defaults to `pickup_verify_mode: vision_plus_servo`.
+- A pickup is accepted when either load-backed `/gripper/holding_object` confirms a hold, or the target puck was still visible at the post-approach grasp pose and then disappears from `/puck/detections` near the pick pose.
+- Delivery is only reported after the release command is followed by a fresh `/gripper/holding_object: false` state.
+- If navigation or release confirmation fails after a verified pickup, the original track is marked `LOST` so the mission will not chase the old floor pose; vision can create a new track if the puck is seen again.
+- With the default final approach distance, load feedback should stay enabled because the puck may be too close for RGB-D vision at the grasp pose. Without load feedback, `/gripper/holding_object` is not treated as a confirmed hold unless `assume_holding_without_feedback: true` is set.
+
 ## Semantic Map (Option 2)
 
 - `semantic_grid_mapper` subscribes to startup survey outputs (and optionally dynamic puck tracks) and publishes:
@@ -178,7 +187,7 @@ rostopic echo /servoLoad
 2. Tune HSV thresholds in `config/puck_color_hsv.yaml` under your actual lighting.
 3. Tune coverage bounds in `config/coverage_search.yaml`.
 4. Set `config/gripper.yaml` for the `rosserial` topics and calibrate `open_angle_deg` / `close_angle_deg`.
-5. Verify `twist_mux` wiring and ensure only mux output goes to robot `/cmd_vel`.
+5. Verify the ROSbot base driver is subscribed to `/cmd_vel`.
 6. Keep `config/start_frame.yaml` enabled if you want startup-relative coordinates.
 7. Tune `config/startup_survey.yaml` (rotation speed, marker size, snapshot path).
 8. Tune `config/semantic_map.yaml` (occupancy grid bounds/resolution/object painting).
@@ -221,4 +230,4 @@ If your marker IDs differ, update `_expected_ids` and `config/qr_home_mapper.yam
 - Home bases are stored as full map-frame `Pose` (`x`, `y`, `z` + orientation).
 - `HomeBase` now includes `marker_distance_m` from ArUco pose estimation (meters; `-1.0` when unavailable).
 - Navigation still runs in `map`; start-relative telemetry is published in `start`.
-- Current gripper hold detection stays heuristic unless you enable `use_load_feedback` in [gripper.yaml](/Users/salehabdelrahman/Desktop/Rob_Lab_Proj/rosbot_puck_sorter/config/gripper.yaml).
+- Gripper hold detection uses load feedback by default; tune `load_feedback_threshold_ma` in [gripper.yaml](/Users/salehabdelrahman/Desktop/Rob_Lab_Proj/rosbot_puck_sorter/config/gripper.yaml) after checking `/servoLoad`.

@@ -1,3 +1,4 @@
+map_frame: map
 image_topic: /camera/color/image_raw
 depth_topic: /camera/aligned_depth_to_color/image_raw
 camera_info_topic: /camera/color/camera_info

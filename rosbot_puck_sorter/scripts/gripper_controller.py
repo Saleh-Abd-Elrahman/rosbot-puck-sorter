@@ -159,6 +159,7 @@ class RosserialTopicBackend:
 
         self.pub_servo = rospy.Publisher(self.servo_topic, UInt16, queue_size=10)
         self.sub_load = None
+        self._load_update_cb = None
         self._load_lock = threading.Lock()
         self._last_load_ma = None
         self._last_load_stamp = None
@@ -170,15 +171,28 @@ class RosserialTopicBackend:
         with self._load_lock:
             self._last_load_ma = float(msg.data)
             self._last_load_stamp = rospy.Time.now()
+            load_ma = self._last_load_ma
+            load_stamp = self._last_load_stamp
+        if self._load_update_cb is not None:
+            self._load_update_cb(load_ma, load_stamp)
+
+    def set_load_update_callback(self, callback):
+        self._load_update_cb = callback
 
     def latest_load_ma(self, max_age_s):
+        reading = self.latest_load_reading(max_age_s)
+        if reading is None:
+            return None
+        return reading[0]
+
+    def latest_load_reading(self, max_age_s):
         with self._load_lock:
             if self._last_load_ma is None or self._last_load_stamp is None:
                 return None
             age_s = (rospy.Time.now() - self._last_load_stamp).to_sec()
             if age_s > float(max_age_s):
                 return None
-            return self._last_load_ma
+            return self._last_load_ma, self._last_load_stamp
 
     def _wait_for_subscriber(self, timeout_s):
         deadline = time.time() + max(0.0, float(timeout_s))
@@ -227,6 +241,7 @@ class GripperController:
         self.require_servo_subscriber = bool(rospy.get_param("~require_servo_subscriber", True))
         self.servo_subscriber_wait_s = float(rospy.get_param("~servo_subscriber_wait_s", 2.0))
         self.use_load_feedback = bool(rospy.get_param("~use_load_feedback", False))
+        self.assume_holding_without_feedback = bool(rospy.get_param("~assume_holding_without_feedback", False))
         self.load_feedback_threshold_ma = float(rospy.get_param("~load_feedback_threshold_ma", 120.0))
         self.load_feedback_timeout_s = float(rospy.get_param("~load_feedback_timeout_s", 2.0))
 
@@ -244,10 +259,16 @@ class GripperController:
 
         self.current_angle = self.open_angle_deg
         self.holding_object = False
+        self.commanded_closed = False
+        self.last_close_stamp = rospy.Time(0)
 
         self.pub_angle = rospy.Publisher("/gripper/state", Float32, queue_size=10, latch=True)
         self.pub_hold = rospy.Publisher("/gripper/holding_object", Bool, queue_size=10, latch=True)
         self.pub_load = rospy.Publisher("/gripper/load", Float32, queue_size=10, latch=True)
+
+        load_callback_setter = getattr(self.backend, "set_load_update_callback", None)
+        if load_callback_setter is not None:
+            load_callback_setter(self._load_update_cb)
 
         self.service = rospy.Service("/gripper/set", SetGripper, self._set_cb)
 
@@ -324,11 +345,38 @@ class GripperController:
         except Exception:
             return None
 
-    def _holding_from_load_feedback(self):
-        load_ma = self._latest_load_ma()
-        if load_ma is None:
+    def _latest_load_reading(self):
+        getter = getattr(self.backend, "latest_load_reading", None)
+        if getter is None:
+            load_ma = self._latest_load_ma()
+            return None if load_ma is None else (load_ma, None)
+        try:
+            return getter(self.load_feedback_timeout_s)
+        except Exception:
+            return None
+
+    def _holding_from_load_feedback(self, min_stamp=None):
+        reading = self._latest_load_reading()
+        if reading is None:
+            return None
+        load_ma, stamp = reading
+        if min_stamp is not None and stamp is not None and (stamp - min_stamp).to_sec() < 0.0:
             return None
         return load_ma >= self.load_feedback_threshold_ma
+
+    def _load_update_cb(self, load_ma, stamp):
+        publish_hold = False
+        with self.lock:
+            if self.use_load_feedback:
+                fresh_for_close = self.commanded_closed and (
+                    self.last_close_stamp == rospy.Time(0)
+                    or (stamp - self.last_close_stamp).to_sec() >= 0.0
+                )
+                self.holding_object = bool(fresh_for_close and load_ma >= self.load_feedback_threshold_ma)
+                publish_hold = True
+        self.pub_load.publish(Float32(data=float(load_ma)))
+        if publish_hold:
+            self.pub_hold.publish(Bool(data=bool(self.holding_object)))
 
     def _set_cb(self, req):
         cmd = (req.command or "").strip().lower()
@@ -337,12 +385,15 @@ class GripperController:
                 ok, msg = self._send_angle(self.open_angle_deg)
                 if ok:
                     self.current_angle = self._normalized_angle(self.open_angle_deg)
+                    self.commanded_closed = False
                     self.holding_object = False
             elif cmd == "close":
+                self.last_close_stamp = rospy.Time.now()
                 ok, msg = self._send_angle(self.close_angle_deg)
                 if ok:
                     self.current_angle = self._normalized_angle(self.close_angle_deg)
-                    self.holding_object = True
+                    self.commanded_closed = True
+                    self.holding_object = bool(self.assume_holding_without_feedback and not self.use_load_feedback)
             elif cmd == "angle":
                 ok, msg = self._send_angle(float(req.angle_deg))
             else:
@@ -354,9 +405,8 @@ class GripperController:
             rospy.sleep(self.settle_time_s)
 
             if cmd == "close" and self.use_load_feedback:
-                holding = self._holding_from_load_feedback()
-                if holding is not None:
-                    self.holding_object = holding
+                holding = self._holding_from_load_feedback(min_stamp=self.last_close_stamp)
+                self.holding_object = bool(holding) if holding is not None else False
 
             self._publish_state()
             return SetGripperResponse(success=True, message=msg)

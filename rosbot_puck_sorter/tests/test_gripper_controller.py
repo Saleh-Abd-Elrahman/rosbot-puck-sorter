@@ -18,6 +18,7 @@ def main():
     rospy.set_param("~open_angle_deg", 15.0)
     rospy.set_param("~close_angle_deg", 90.0)
     rospy.set_param("~settle_time_s", 0.05)
+    rospy.set_param("~assume_holding_without_feedback", True)
 
     module = load_script_module("gripper_controller.py", "gripper_controller_test_mod")
     module.GripperController()

@@ -8,4 +8,4 @@ yaw_deadband_m: 0.02
 depth_deadband_m: 0.015
 target_depth_m: 0.18
 success_hold_s: 0.4
-cmd_timeout_s: 0.3
+align_timeout_s: 6.0
