@@ -34,6 +34,7 @@ class MissionManager:
         self.min_startup_homes = int(rospy.get_param("~min_startup_homes", 3))
         self.startup_validation_timeout_s = float(rospy.get_param("~startup_validation_timeout_s", 2.5))
         self.skip_corner_scan_if_startup_valid = bool(rospy.get_param("~skip_corner_scan_if_startup_valid", True))
+        self.hold_terminal_state = bool(rospy.get_param("~hold_terminal_state", True))
 
         self.target_policy = rospy.get_param("~target_policy", "cost_optimal")
         self.single_puck_per_color = bool(rospy.get_param("~single_puck_per_color", True))
@@ -255,6 +256,27 @@ class MissionManager:
         out.finished = bool(finished)
         out.note = self.note
         self.pub_state.publish(out)
+
+    def _enter_terminal_state(self, state, note, finished=False, log_level="info"):
+        self.state = state
+        self.note = note
+        self._publish_state(finished=finished)
+
+        msg = f"mission_manager terminal state {state}: {note}"
+        if log_level == "error":
+            rospy.logerr(msg)
+        elif log_level == "warn":
+            rospy.logwarn(msg)
+        else:
+            rospy.loginfo(msg)
+
+        if not self.hold_terminal_state:
+            return
+
+        rate = rospy.Rate(1.0)
+        while not rospy.is_shutdown():
+            self._publish_state(finished=finished)
+            rate.sleep()
 
     def _is_blacklisted(self, track_id):
         until = self.blacklist_until.get(track_id, 0.0)
@@ -586,17 +608,21 @@ class MissionManager:
             try:
                 rsp = self.startup_survey_srv()
                 if not rsp.success and self.startup_survey_must_succeed:
-                    self.state = "ERROR"
-                    self.note = f"startup survey failed: {rsp.message}"
-                    self._publish_state()
+                    self._enter_terminal_state(
+                        "ERROR",
+                        f"startup survey failed: {rsp.message}",
+                        log_level="error",
+                    )
                     return
                 self.note = f"startup survey: {rsp.message}"
                 self._publish_state()
             except Exception as exc:
                 if self.startup_survey_must_succeed:
-                    self.state = "ERROR"
-                    self.note = f"startup survey exception: {exc}"
-                    self._publish_state()
+                    self._enter_terminal_state(
+                        "ERROR",
+                        f"startup survey exception: {exc}",
+                        log_level="error",
+                    )
                     return
                 self.note = f"startup survey skipped (exception): {exc}"
                 self._publish_state()
@@ -624,23 +650,29 @@ class MissionManager:
             try:
                 rsp = self.scan_srv(start=True)
                 if not rsp.success:
-                    self.state = "ERROR"
-                    self.note = f"home scan failed: {rsp.message}"
-                    self._publish_state()
+                    self._enter_terminal_state(
+                        "ERROR",
+                        f"home scan failed: {rsp.message}",
+                        log_level="error",
+                    )
                     return
             except Exception as exc:
-                self.state = "ERROR"
-                self.note = f"home scan exception: {exc}"
-                self._publish_state()
+                self._enter_terminal_state(
+                    "ERROR",
+                    f"home scan exception: {exc}",
+                    log_level="error",
+                )
                 return
 
         self.state = "RUNNING"
 
         while not rospy.is_shutdown():
             if (rospy.Time.now() - self.started_at).to_sec() > self.mission_timeout_s:
-                self.state = "TIMEOUT"
-                self.note = "mission timeout reached"
-                self._publish_state()
+                self._enter_terminal_state(
+                    "TIMEOUT",
+                    "mission timeout reached",
+                    log_level="warn",
+                )
                 return
 
             if self.goal_in_flight:
@@ -658,12 +690,11 @@ class MissionManager:
                 continue
 
             if self._done_condition():
-                self.state = "FINISHED"
                 if self.single_puck_per_color and self.expected_colors:
-                    self.note = "all expected colors delivered"
+                    note = "all expected colors delivered"
                 else:
-                    self.note = "all pucks sorted"
-                self._publish_state(finished=True)
+                    note = "all pucks sorted"
+                self._enter_terminal_state("FINISHED", note, finished=True)
                 return
 
             selected = self._select_best_target()

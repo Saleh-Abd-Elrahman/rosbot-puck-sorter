@@ -1,10 +1,11 @@
 rate_hz: 10.0
 startup_survey_required: true
-startup_survey_must_succeed: true
+startup_survey_must_succeed: false
 validate_startup_data: true
 min_startup_homes: 3
 startup_validation_timeout_s: 2.5
 skip_corner_scan_if_startup_valid: true
+hold_terminal_state: true
 
 target_policy: cost_optimal
 single_puck_per_color: true
