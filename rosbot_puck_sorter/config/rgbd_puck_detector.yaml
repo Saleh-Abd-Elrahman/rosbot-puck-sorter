@@ -1,6 +1,6 @@
 map_frame: odom
-image_topic: /camera/color/image_raw
-depth_topic: /camera/aligned_depth_to_color/image_raw
+image_topic: /camera/color/image_2fps
+depth_topic: /camera/depth/image_2fps
 camera_info_topic: /camera/color/camera_info
 process_rate_hz: 12.0
 require_map_tf: false

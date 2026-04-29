@@ -1,8 +1,8 @@
 cmd_topic: /cmd_vel
 scan_topic: /scan
-image_topic: /camera/color/image_raw
+image_topic: /camera/color/image_2fps
 camera_info_topic: /camera/color/camera_info
-depth_topic: /camera/aligned_depth_to_color/image_raw
+depth_topic: /camera/depth/image_2fps
 gripper_service: /gripper/set
 gripper_holding_topic: /gripper/holding_object
 

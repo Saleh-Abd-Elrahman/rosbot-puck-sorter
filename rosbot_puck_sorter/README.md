@@ -64,7 +64,7 @@ Legacy nodes can also expose:
 ## External stack expected
 
 Launch these separately (robot-specific):
-- camera driver (RGB-D topics)
+- camera driver publishing the class lab topics (`/camera/color/image_2fps` and `/camera/depth/image_2fps`)
 - LiDAR `/scan` if available; depth image safety is also used
 - base motor driver (subscribes to `/cmd_vel`)
 - Arduino Nano gripper firmware from [gripper_rosserial.ino](/Users/salehabdelrahman/Desktop/Rob_Lab_Proj/arduino/gripper_rosserial/gripper_rosserial.ino)

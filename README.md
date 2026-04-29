@@ -36,7 +36,7 @@ source devel/setup.bash
 ## Run
 
 Launch your robot bringup first so these are already running:
-- RGB-D camera
+- RGB-D camera publishing the class lab topics (`/camera/color/image_2fps` and `/camera/depth/image_2fps`)
 - optional LiDAR `/scan`
 - base driver subscribed to `/cmd_vel`
 - `rosrun rosserial_python serial_node.py /dev/ttyUSB0` for the gripper Arduino
