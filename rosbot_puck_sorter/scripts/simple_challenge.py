@@ -71,10 +71,10 @@ class SimpleChallenge:
         self.kp_linear = float(rospy.get_param("~kp_linear", 0.003))
         self.approach_base = float(rospy.get_param("~approach_base", 0.06))
 
-        self.commit_radius_px = float(rospy.get_param("~commit_radius_px", 45.0))
+        self.commit_radius_px = float(rospy.get_param("~commit_radius_px", 70.0))
         self.commit_lost_min_radius_px = float(rospy.get_param("~commit_lost_min_radius_px", 38.0))
         self.commit_speed = float(rospy.get_param("~commit_speed", 0.08))
-        self.commit_time = float(rospy.get_param("~commit_time", 1.2))
+        self.commit_time = float(rospy.get_param("~commit_time", 1.8))
 
         self.grasp_settle = float(rospy.get_param("~grasp_settle", 1.5))
         self.backup_time = float(rospy.get_param("~backup_time", 1.0))
@@ -85,8 +85,8 @@ class SimpleChallenge:
         self.tag_kp_linear = float(rospy.get_param("~tag_kp_linear", 0.002))
         self.tag_approach_base = float(rospy.get_param("~tag_approach_base", 0.06))
 
-        self.front_stop_distance = float(rospy.get_param("~front_stop_distance", 0.20))
-        self.front_slow_distance = float(rospy.get_param("~front_slow_distance", 0.35))
+        self.front_stop_distance = float(rospy.get_param("~front_stop_distance", 0.08))
+        self.front_slow_distance = float(rospy.get_param("~front_slow_distance", 0.18))
         self.scan_front_angle = math.radians(float(rospy.get_param("~scan_front_angle_deg", 35.0)))
         self.scan_timeout = float(rospy.get_param("~scan_timeout", 0.75))
 
@@ -156,7 +156,10 @@ class SimpleChallenge:
 
     def set_state(self, state):
         if state != self.state:
-            color, marker_id = self.current_task()
+            if self.task_index < len(TASKS):
+                color, marker_id = self.current_task()
+            else:
+                color, marker_id = "complete", 0
             rospy.loginfo("%s marker %d: %s -> %s", color, marker_id, self.state, state)
         self.state = state
         self.state_start = rospy.Time.now()
