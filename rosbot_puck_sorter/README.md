@@ -146,7 +146,7 @@ rostopic echo /servoLoad
 
 `challenge_manager.py` runs one color at a time:
 
-1. Rotate in place until a not-yet-delivered puck color is visible.
+1. Rotate in place until any not-yet-delivered puck color is visible.
 2. Aim the puck at the configured gripper pixel offset and approach using the same HSV contour/depth style as the lab scripts.
 3. If the puck becomes too close to keep seeing, perform a short open-loop pickup commit, then close the gripper through `/gripper/set`.
 4. Rotate in place until the matching ArUco marker is visible.
@@ -205,5 +205,6 @@ If your marker IDs differ, update `_expected_ids` and `config/challenge_manager.
 ## Notes
 
 - Red uses two HSV hue ranges (`red1`, `red2`) due hue wraparound in OpenCV.
+- The detector listens to the compressed class image topic and the raw fallback topic, then processes each color frame with the latest available depth frame instead of requiring matching timestamps. If depth is missing, it can still publish color-only fallback detections for debugging and image-size pickup behavior.
 - The main challenge runner does not store map-frame home poses.
 - Gripper hold detection uses load feedback by default; tune `load_feedback_threshold_ma` in [gripper.yaml](/Users/salehabdelrahman/Desktop/Rob_Lab_Proj/rosbot_puck_sorter/config/gripper.yaml) after checking `/servoLoad`.

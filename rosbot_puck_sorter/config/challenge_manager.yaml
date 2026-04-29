@@ -2,6 +2,7 @@ cmd_topic: /cmd_vel
 scan_topic: /scan
 image_topic: /camera/color/image_2fps/compressed
 image_is_compressed: true
+raw_image_fallback_topic: /camera/color/image_2fps
 camera_info_topic: /camera/color/camera_info
 depth_topic: /camera/depth/image_2fps
 gripper_service: /gripper/set

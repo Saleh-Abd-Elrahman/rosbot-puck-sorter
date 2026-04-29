@@ -39,6 +39,9 @@ class ChallengeManager:
         self.scan_topic = rospy.get_param("~scan_topic", "/scan")
         self.image_topic = rospy.get_param("~image_topic", "/camera/color/image_raw")
         self.image_is_compressed = bool(rospy.get_param("~image_is_compressed", self.image_topic.endswith("/compressed")))
+        self.raw_image_fallback_topic = rospy.get_param("~raw_image_fallback_topic", "")
+        if not self.raw_image_fallback_topic and self.image_is_compressed and self.image_topic.endswith("/compressed"):
+            self.raw_image_fallback_topic = self.image_topic[: -len("/compressed")]
         self.camera_info_topic = rospy.get_param("~camera_info_topic", "/camera/color/camera_info")
         self.depth_topic = rospy.get_param("~depth_topic", "/camera/aligned_depth_to_color/image_raw")
         self.gripper_service = rospy.get_param("~gripper_service", "/gripper/set")
@@ -134,7 +137,9 @@ class ChallengeManager:
 
         rospy.Subscriber("/puck/detections", PuckDetectionArray, self._pucks_cb, queue_size=10)
         image_msg_type = CompressedImage if self.image_is_compressed else Image
-        rospy.Subscriber(self.image_topic, image_msg_type, self._image_cb, queue_size=1)
+        self.sub_image = [rospy.Subscriber(self.image_topic, image_msg_type, self._image_cb, queue_size=1)]
+        if self.raw_image_fallback_topic:
+            self.sub_image.append(rospy.Subscriber(self.raw_image_fallback_topic, Image, self._image_cb, queue_size=1))
         rospy.Subscriber(self.camera_info_topic, CameraInfo, self._camera_info_cb, queue_size=1)
         rospy.Subscriber(self.depth_topic, Image, self._depth_cb, queue_size=1)
         rospy.Subscriber(self.scan_topic, LaserScan, self._scan_cb, queue_size=1)
@@ -144,7 +149,12 @@ class ChallengeManager:
         self.gripper_srv = rospy.ServiceProxy(self.gripper_service, SetGripper)
 
         rospy.on_shutdown(self._stop)
-        rospy.loginfo("challenge_manager ready: reactive no-AMCL sorter (image_topic=%s compressed=%s)", self.image_topic, self.image_is_compressed)
+        rospy.loginfo(
+            "challenge_manager ready: reactive no-AMCL sorter (image_topic=%s compressed=%s raw_fallback=%s)",
+            self.image_topic,
+            self.image_is_compressed,
+            self.raw_image_fallback_topic,
+        )
 
     @staticmethod
     def _normalize_color(color):
@@ -448,6 +458,23 @@ class ChallengeManager:
             return None
         return min(matches, key=lambda det: det.position_camera.z)
 
+    def _select_any_puck_color(self, colors):
+        now = rospy.Time.now()
+        wanted = set([self._normalize_color(color) for color in colors])
+        with self.lock:
+            if (now - self.latest_puck_stamp).to_sec() > self.puck_stale_s:
+                return None
+            matches = [
+                det for det in self.latest_pucks
+                if self._normalize_color(det.color) in wanted
+                and det.confidence >= self.puck_conf_min
+                and det.position_camera.z > 0.0
+            ]
+        if not matches:
+            return None
+        best = min(matches, key=lambda det: det.position_camera.z)
+        return self._normalize_color(best.color)
+
     def _select_marker(self, color):
         now = rospy.Time.now()
         with self.lock:
@@ -473,6 +500,23 @@ class ChallengeManager:
             if obj is not None:
                 self._stop()
                 return obj
+            self._cmd(0.0, self.search_angular_speed)
+            rate.sleep()
+        self._stop()
+        return None
+
+    def _search_for_any_puck(self, colors, timeout_s):
+        rate = rospy.Rate(self.control_rate_hz)
+        start = rospy.Time.now()
+        while not rospy.is_shutdown():
+            if (rospy.Time.now() - self.started_at).to_sec() > self.mission_timeout_s:
+                return None
+            if timeout_s > 0.0 and (rospy.Time.now() - start).to_sec() > timeout_s:
+                return None
+            color = self._select_any_puck_color(colors)
+            if color is not None:
+                self._stop()
+                return color
             self._cmd(0.0, self.search_angular_speed)
             rate.sleep()
         self._stop()
@@ -651,25 +695,22 @@ class ChallengeManager:
                 self._terminal("FINISHED", "all pucks placed")
                 return
 
-            progressed = False
-            for color in remaining:
-                if rospy.is_shutdown():
-                    return
-                picked, pick_msg = self._pick_color(color)
-                if not picked:
-                    self._publish_state("SEARCH_PUCK", pick_msg)
-                    continue
-                placed, place_msg = self._place_color(color)
-                if not placed:
-                    self._terminal("ERROR", place_msg)
-                    return
-                progressed = True
-                break
-
-            if not progressed:
+            self._publish_state("SEARCH_PUCK", "searching for any remaining puck")
+            color = self._search_for_any_puck(remaining, self.search_timeout_s)
+            if color is None:
                 self._publish_state("SEARCH_PUCK", "no expected puck visible; rotating to search")
                 self._cmd(0.0, self.search_angular_speed)
                 rate.sleep()
+                continue
+
+            picked, pick_msg = self._pick_color(color)
+            if not picked:
+                self._publish_state("SEARCH_PUCK", pick_msg)
+                continue
+            placed, place_msg = self._place_color(color)
+            if not placed:
+                self._terminal("ERROR", place_msg)
+                return
 
 
 def main():

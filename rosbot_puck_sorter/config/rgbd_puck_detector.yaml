@@ -1,7 +1,12 @@
 map_frame: odom
 image_topic: /camera/color/image_2fps/compressed
 image_is_compressed: true
+raw_image_fallback_topic: /camera/color/image_2fps
 depth_topic: /camera/depth/image_2fps
+use_approximate_sync: false
+depth_timeout_s: 2.5
+allow_depth_fallback: true
+fallback_depth_m: 0.8
 camera_info_topic: /camera/color/camera_info
 process_rate_hz: 12.0
 require_map_tf: false

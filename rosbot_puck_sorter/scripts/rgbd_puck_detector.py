@@ -21,7 +21,14 @@ class RGBDPuckDetector:
         self.map_frame = rospy.get_param("~map_frame", "map")
         self.image_topic = rospy.get_param("~image_topic", "/camera/color/image_raw")
         self.image_is_compressed = bool(rospy.get_param("~image_is_compressed", self.image_topic.endswith("/compressed")))
+        self.raw_image_fallback_topic = rospy.get_param("~raw_image_fallback_topic", "")
+        if not self.raw_image_fallback_topic and self.image_is_compressed and self.image_topic.endswith("/compressed"):
+            self.raw_image_fallback_topic = self.image_topic[: -len("/compressed")]
         self.depth_topic = rospy.get_param("~depth_topic", "/camera/aligned_depth_to_color/image_raw")
+        self.use_approximate_sync = bool(rospy.get_param("~use_approximate_sync", False))
+        self.depth_timeout_s = float(rospy.get_param("~depth_timeout_s", 2.5))
+        self.allow_depth_fallback = bool(rospy.get_param("~allow_depth_fallback", True))
+        self.fallback_depth_m = float(rospy.get_param("~fallback_depth_m", 0.8))
         self.camera_info_topic = rospy.get_param("~camera_info_topic", "/camera/color/camera_info")
         self.process_rate_hz = float(rospy.get_param("~process_rate_hz", 12.0))
         self.require_map_tf = bool(rospy.get_param("~require_map_tf", False))
@@ -49,7 +56,10 @@ class RGBDPuckDetector:
         self.blue = rospy.get_param("~blue", [95, 130, 70, 255, 60, 255])
 
         self.camera_lock = threading.Lock()
+        self.depth_lock = threading.Lock()
         self.fx = self.fy = self.cx = self.cy = None
+        self.latest_depth = None
+        self.latest_depth_stamp = rospy.Time(0)
         self.last_process_time = rospy.Time(0)
         self.last_stats_log_time = rospy.Time(0)
 
@@ -62,12 +72,27 @@ class RGBDPuckDetector:
         self.sub_info = rospy.Subscriber(self.camera_info_topic, CameraInfo, self._camera_info_cb, queue_size=1)
 
         rgb_msg_type = CompressedImage if self.image_is_compressed else Image
-        rgb_sub = message_filters.Subscriber(self.image_topic, rgb_msg_type)
-        depth_sub = message_filters.Subscriber(self.depth_topic, Image)
-        self.sync = message_filters.ApproximateTimeSynchronizer([rgb_sub, depth_sub], queue_size=5, slop=0.5)
-        self.sync.registerCallback(self._rgbd_cb)
+        if self.use_approximate_sync:
+            rgb_sub = message_filters.Subscriber(self.image_topic, rgb_msg_type)
+            depth_sub = message_filters.Subscriber(self.depth_topic, Image)
+            self.sync = message_filters.ApproximateTimeSynchronizer([rgb_sub, depth_sub], queue_size=5, slop=0.5)
+            self.sync.registerCallback(self._rgbd_cb)
+            self.sub_rgb = None
+            self.sub_depth = None
+        else:
+            self.sync = None
+            self.sub_rgb = [rospy.Subscriber(self.image_topic, rgb_msg_type, self._rgb_cb, queue_size=1)]
+            if self.raw_image_fallback_topic:
+                self.sub_rgb.append(rospy.Subscriber(self.raw_image_fallback_topic, Image, self._rgb_cb, queue_size=1))
+            self.sub_depth = rospy.Subscriber(self.depth_topic, Image, self._depth_cb, queue_size=1)
 
-        rospy.loginfo("rgbd_puck_detector ready (image_topic=%s compressed=%s)", self.image_topic, self.image_is_compressed)
+        rospy.loginfo(
+            "rgbd_puck_detector ready (image_topic=%s compressed=%s raw_fallback=%s sync=%s)",
+            self.image_topic,
+            self.image_is_compressed,
+            self.raw_image_fallback_topic,
+            self.use_approximate_sync,
+        )
 
     def _camera_info_cb(self, msg):
         with self.camera_lock:
@@ -151,6 +176,36 @@ class RGBDPuckDetector:
             return frame
         return self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
 
+    @staticmethod
+    def _depth_to_meters(depth):
+        if depth.dtype == np.uint16:
+            return depth.astype(np.float32) / 1000.0
+        if depth.dtype != np.float32:
+            return depth.astype(np.float32)
+        return depth
+
+    def _depth_cb(self, msg):
+        try:
+            depth = self.bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
+            depth = self._depth_to_meters(depth)
+        except Exception as exc:
+            rospy.logwarn_throttle(2.0, "depth conversion failed: %s", exc)
+            return
+        with self.depth_lock:
+            self.latest_depth = depth
+            self.latest_depth_stamp = rospy.Time.now()
+
+    def _latest_depth(self, bgr_shape):
+        with self.depth_lock:
+            depth = None if self.latest_depth is None else self.latest_depth.copy()
+            stamp = self.latest_depth_stamp
+        if depth is not None and (rospy.Time.now() - stamp).to_sec() <= self.depth_timeout_s:
+            return depth, False
+        if not self.allow_depth_fallback:
+            return None, False
+        h, w = bgr_shape[:2]
+        return np.full((h, w), self.fallback_depth_m, dtype=np.float32), True
+
     def _pixel_to_camera(self, u, v, depth_m, image_w, image_h):
         with self.camera_lock:
             fx, fy, cx, cy = self.fx, self.fy, self.cx, self.cy
@@ -187,6 +242,18 @@ class RGBDPuckDetector:
             return None
 
     def _rgbd_cb(self, rgb_msg, depth_msg):
+        try:
+            depth = self.bridge.imgmsg_to_cv2(depth_msg, desired_encoding="passthrough")
+            depth = self._depth_to_meters(depth)
+        except Exception as exc:
+            rospy.logwarn_throttle(2.0, "depth conversion failed: %s", exc)
+            return
+        self._process_rgbd(rgb_msg, depth, False)
+
+    def _rgb_cb(self, rgb_msg):
+        self._process_rgbd(rgb_msg, None, False)
+
+    def _process_rgbd(self, rgb_msg, depth, depth_is_fallback):
         if self.process_rate_hz > 0.0:
             now = rospy.Time.now()
             min_period = 1.0 / self.process_rate_hz
@@ -196,16 +263,15 @@ class RGBDPuckDetector:
 
         try:
             bgr = self._bgr_from_msg(rgb_msg)
-            depth = self.bridge.imgmsg_to_cv2(depth_msg, desired_encoding="passthrough")
         except Exception as exc:
-            rospy.logwarn_throttle(2.0, "cv_bridge conversion failed: %s", exc)
+            rospy.logwarn_throttle(2.0, "color image conversion failed: %s", exc)
             return
 
-        if depth.dtype != np.float32:
-            if depth.dtype == np.uint16:
-                depth = depth.astype(np.float32) / 1000.0
-            else:
-                depth = depth.astype(np.float32)
+        if depth is None:
+            depth, depth_is_fallback = self._latest_depth(bgr.shape)
+        if depth is None:
+            rospy.logwarn_throttle(2.0, "no fresh depth image for puck detector; skipping color frame")
+            return
 
         h, w = bgr.shape[:2]
         if depth.shape[:2] != bgr.shape[:2]:
@@ -299,14 +365,14 @@ class RGBDPuckDetector:
                     )
 
         self.pub_detections.publish(det_array)
-        self._log_stats(stats, len(det_array.detections))
+        self._log_stats(stats, len(det_array.detections), depth_is_fallback)
 
         if self.publish_debug_image and self.pub_debug.get_num_connections() > 0:
             dbg_msg = self.bridge.cv2_to_imgmsg(debug, encoding="bgr8")
             dbg_msg.header = rgb_msg.header
             self.pub_debug.publish(dbg_msg)
 
-    def _log_stats(self, stats, detections):
+    def _log_stats(self, stats, detections, depth_is_fallback=False):
         if not self.debug_log_stats:
             return
         now = rospy.Time.now()
@@ -328,7 +394,12 @@ class RGBDPuckDetector:
                     s.get("detections", 0),
                 )
             )
-        rospy.loginfo("puck detector stats: total=%d | %s", detections, " | ".join(parts))
+        rospy.loginfo(
+            "puck detector stats: total=%d depth_fallback=%s | %s",
+            detections,
+            depth_is_fallback,
+            " | ".join(parts),
+        )
 
 
 def main():
