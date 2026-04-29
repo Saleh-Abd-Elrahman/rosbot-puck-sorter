@@ -50,7 +50,7 @@ class PickAndPlace:
         self.state = self.S_INIT
         self.state_t0 = rospy.Time.now()
         self.warmup_s = 2.0
-        self.start_scan_s = 32.0
+        self.start_scan_s = 16.0
 
         self.rgb_frame = None
         self.servo_load = 0.0
@@ -80,7 +80,7 @@ class PickAndPlace:
         self.k_turn = 0.7
         self.k_forward = 0.25
         self.search_ang = 0.2
-        self.start_scan_ang = 0.2
+        self.start_scan_ang = 0.4
 
         self.servo_open = 0
         self.servo_close = 155
