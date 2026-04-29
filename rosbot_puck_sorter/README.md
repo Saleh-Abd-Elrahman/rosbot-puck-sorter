@@ -4,7 +4,7 @@ Minimal ROS 1 package for the final challenge.
 
 It installs and launches only:
 
-- `scripts/simple_challenge.py`
+- `scripts/pick_and_place.py`
 
 The node performs the challenge with direct camera servoing:
 

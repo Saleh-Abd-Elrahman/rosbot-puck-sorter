@@ -6,12 +6,13 @@ find_package(catkin REQUIRED COMPONENTS
   std_msgs
   geometry_msgs
   sensor_msgs
+  cv_bridge
 )
 
 catkin_package()
 
 catkin_install_python(PROGRAMS
-  scripts/simple_challenge.py
+  scripts/pick_and_place.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

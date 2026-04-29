@@ -14,7 +14,7 @@ Active behavior:
 
 There is one ROS node:
 
-- `rosbot_puck_sorter/scripts/simple_challenge.py`
+- `rosbot_puck_sorter/scripts/pick_and_place.py`
 
 ## Run
 
