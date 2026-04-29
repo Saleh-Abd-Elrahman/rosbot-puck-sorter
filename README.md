@@ -35,3 +35,17 @@ roslaunch rosbot_puck_sorter mission.launch
 ## Notes
 
 The node uses simple HSV blob tracking for pucks and ArUco detection for marker IDs. It does not use AMCL, odom, maps, waypoints, custom messages, action servers, or services.
+
+It also publishes an approximate top-down path image at:
+
+```bash
+/pick_and_place/path_image
+```
+
+Open it with:
+
+```bash
+rqt_image_view /pick_and_place/path_image
+```
+
+If the robot computer has a display, it also opens a `Path Tracking` window.

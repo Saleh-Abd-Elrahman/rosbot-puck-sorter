@@ -18,9 +18,16 @@ Topics:
 - subscribes: `/scan` if available for front stop safety
 - publishes: `/cmd_vel`
 - publishes: `/servo`
+- publishes: `/pick_and_place/path_image`
 
 Run:
 
 ```bash
 roslaunch rosbot_puck_sorter mission.launch
+```
+
+View the approximate path tracker:
+
+```bash
+rqt_image_view /pick_and_place/path_image
 ```

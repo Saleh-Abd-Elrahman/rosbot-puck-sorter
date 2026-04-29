@@ -12,19 +12,22 @@ Mission: red -> green -> blue. ArUco IDs: 1=red, 2=green, 3=blue (DICT_4X4_50).
 Gripper: publish UInt16 to /servo (open/close angles), read /servoLoad (Float32) for force.
 """
 
+import math
 import os
+import threading
 
 import cv2
 import numpy as np
 import rospy
 from cv_bridge import CvBridge
 from geometry_msgs.msg import Twist
-from sensor_msgs.msg import CompressedImage, Range
+from sensor_msgs.msg import CompressedImage, Image, Range
 from std_msgs.msg import Float32, UInt16
 
 
 class PickAndPlace:
     S_INIT = "INIT"
+    S_START_SCAN = "START_SCAN"
     S_HUNT_PUCK = "HUNT_PUCK"
     S_GRAB = "GRAB"
     S_HUNT_ARUCO = "HUNT_ARUCO"
@@ -37,6 +40,9 @@ class PickAndPlace:
 
         self.bridge = CvBridge()
         self.has_display = "DISPLAY" in os.environ and os.environ["DISPLAY"]
+        self.path_enabled = bool(rospy.get_param("~path_enabled", True))
+        self.path_canvas_px = int(rospy.get_param("~path_canvas_px", 700))
+        self.path_scale_px_per_m = float(rospy.get_param("~path_scale_px_per_m", 140.0))
 
         self.pickup_order = ["red", "green", "blue"]
         self.aruco_id_for = {"red": 1, "green": 2, "blue": 3}
@@ -44,12 +50,22 @@ class PickAndPlace:
         self.state = self.S_INIT
         self.state_t0 = rospy.Time.now()
         self.warmup_s = 2.0
+        self.start_scan_s = 32.0
 
         self.rgb_frame = None
         self.servo_load = 0.0
         self.range_fl = float("inf")
         self.range_fr = float("inf")
         self.desired_servo = 0
+
+        self.path_lock = threading.Lock()
+        self.path_x = 0.0
+        self.path_y = 0.0
+        self.path_yaw = 0.0
+        self.path_last_stamp = rospy.Time.now()
+        self.path_last_lin = 0.0
+        self.path_last_ang = 0.0
+        self.path_points = [(0.0, 0.0)]
 
         self.min_blob_area = 300
         self.target_puck_area = 9000
@@ -64,6 +80,7 @@ class PickAndPlace:
         self.k_turn = 0.7
         self.k_forward = 0.25
         self.search_ang = 0.2
+        self.start_scan_ang = 0.2
 
         self.servo_open = 0
         self.servo_close = 155
@@ -100,8 +117,10 @@ class PickAndPlace:
 
         self.cmd_pub = rospy.Publisher("/cmd_vel", Twist, queue_size=10)
         self.servo_pub = rospy.Publisher("/servo", UInt16, queue_size=10)
+        self.path_pub = rospy.Publisher("/pick_and_place/path_image", Image, queue_size=1, latch=True)
 
         rospy.Timer(rospy.Duration(0.1), self._republish_servo)
+        rospy.Timer(rospy.Duration(0.2), self._path_timer)
 
         rospy.Subscriber("/camera/color/image_2fps/compressed", CompressedImage, self.image_callback)
         rospy.Subscriber("/servoLoad", Float32, self.servo_load_callback)
@@ -153,14 +172,101 @@ class PickAndPlace:
         self.servo_pub.publish(UInt16(self.desired_servo))
 
     def stop(self):
+        self._record_motion_command(0.0, 0.0)
         self.cmd_pub.publish(Twist())
 
     def drive(self, lin, ang):
         t = Twist()
         t.linear.x = max(-self.max_lin, min(self.max_lin, lin))
         t.angular.z = max(-self.max_ang, min(self.max_ang, ang))
+        self._record_motion_command(t.linear.x, t.angular.z)
         self.cmd_pub.publish(t)
         return t.linear.x, t.angular.z
+
+    def _record_motion_command(self, lin, ang):
+        if not self.path_enabled:
+            return
+        with self.path_lock:
+            self._integrate_path_locked(rospy.Time.now())
+            self.path_last_lin = float(lin)
+            self.path_last_ang = float(ang)
+
+    def _path_timer(self, _evt):
+        if not self.path_enabled:
+            return
+        with self.path_lock:
+            self._integrate_path_locked(rospy.Time.now())
+            image = self._render_path_locked()
+
+        try:
+            msg = self.bridge.cv2_to_imgmsg(image, encoding="bgr8")
+            msg.header.stamp = rospy.Time.now()
+            self.path_pub.publish(msg)
+        except Exception as exc:
+            rospy.logwarn_throttle(2.0, "path image publish failed: %s", exc)
+
+        if self.has_display:
+            cv2.imshow("Path Tracking", image)
+            cv2.waitKey(1)
+
+    def _integrate_path_locked(self, now):
+        dt = (now - self.path_last_stamp).to_sec()
+        if dt <= 0.0:
+            return
+        dt = min(dt, 0.5)
+
+        mid_yaw = self.path_yaw + 0.5 * self.path_last_ang * dt
+        self.path_x += self.path_last_lin * math.cos(mid_yaw) * dt
+        self.path_y += self.path_last_lin * math.sin(mid_yaw) * dt
+        self.path_yaw += self.path_last_ang * dt
+        self.path_yaw = math.atan2(math.sin(self.path_yaw), math.cos(self.path_yaw))
+        self.path_last_stamp = now
+
+        last_x, last_y = self.path_points[-1]
+        if math.hypot(self.path_x - last_x, self.path_y - last_y) >= 0.01:
+            self.path_points.append((self.path_x, self.path_y))
+            if len(self.path_points) > 5000:
+                self.path_points = self.path_points[-5000:]
+
+    def _world_to_path_px(self, x, y):
+        center = self.path_canvas_px // 2
+        px = int(center + y * self.path_scale_px_per_m)
+        py = int(center - x * self.path_scale_px_per_m)
+        return px, py
+
+    def _render_path_locked(self):
+        size = self.path_canvas_px
+        image = np.full((size, size, 3), 245, dtype=np.uint8)
+        center = size // 2
+
+        grid_step = max(20, int(0.25 * self.path_scale_px_per_m))
+        for p in range(0, size, grid_step):
+            cv2.line(image, (p, 0), (p, size), (225, 225, 225), 1)
+            cv2.line(image, (0, p), (size, p), (225, 225, 225), 1)
+        cv2.line(image, (center, 0), (center, size), (180, 180, 180), 1)
+        cv2.line(image, (0, center), (size, center), (180, 180, 180), 1)
+
+        if len(self.path_points) >= 2:
+            pts = np.array([self._world_to_path_px(x, y) for x, y in self.path_points], dtype=np.int32)
+            cv2.polylines(image, [pts], False, (255, 80, 0), 2)
+
+        origin = self._world_to_path_px(0.0, 0.0)
+        robot = self._world_to_path_px(self.path_x, self.path_y)
+        heading = self._world_to_path_px(
+            self.path_x + 0.20 * math.cos(self.path_yaw),
+            self.path_y + 0.20 * math.sin(self.path_yaw),
+        )
+
+        cv2.circle(image, origin, 5, (0, 160, 0), -1)
+        cv2.circle(image, robot, 7, (0, 0, 255), -1)
+        cv2.arrowedLine(image, robot, heading, (0, 0, 180), 2, tipLength=0.35)
+
+        color = self.pickup_order[self.color_index] if self.color_index < len(self.pickup_order) else "done"
+        cv2.putText(image, "approx path from /cmd_vel", (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (20, 20, 20), 2)
+        cv2.putText(image, f"state={self.state} target={color}", (12, 56), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (40, 40, 40), 1)
+        cv2.putText(image, f"x={self.path_x:+.2f}m y={self.path_y:+.2f}m yaw={math.degrees(self.path_yaw):+.0f}deg", (12, 82), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (40, 40, 40), 1)
+        cv2.putText(image, "green=start red=robot blue=trail", (12, size - 18), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (60, 60, 60), 1)
+        return image
 
     def color_mask(self, hsv, color):
         m = None
@@ -279,8 +385,19 @@ class PickAndPlace:
             elapsed = (rospy.Time.now() - self.state_t0).to_sec()
             action = f"warming up... t={elapsed:.1f}s / {self.warmup_s}s"
             if elapsed > self.warmup_s:
-                rospy.loginfo("Warmup done, beginning mission")
+                rospy.loginfo("Warmup done, doing startup 360 scan")
+                self._goto(self.S_START_SCAN)
+
+        elif self.state == self.S_START_SCAN:
+            elapsed = (rospy.Time.now() - self.state_t0).to_sec()
+            if elapsed < self.start_scan_s:
+                lin_c, ang_c = self.drive(0.0, self.start_scan_ang)
+                action = f"startup 360 scan t={elapsed:.1f}s/{self.start_scan_s:.1f}s — {self._motion_label(lin_c, ang_c)}"
+            else:
+                self.stop()
+                rospy.loginfo("Startup 360 scan done, beginning puck search")
                 self._goto(self.S_HUNT_PUCK)
+                action = "startup scan complete"
 
         elif self.state == self.S_HUNT_PUCK:
             blob = self.biggest_blob(self.color_mask(hsv, target_color), self.min_blob_area)
