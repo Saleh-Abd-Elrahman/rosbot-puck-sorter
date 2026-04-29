@@ -19,10 +19,11 @@ roi_bottom_crop: 0.0
 median_blur_ksize: 0
 morph_ksize: 7
 depth_erode_ksize: 5
+max_detections_per_color: 1
 morph_open_ksize: 3
 morph_close_ksize: 5
 min_area_px: 300
 max_area_px: 20000
-circularity_min: 0.0
+circularity_min: 0.30
 detection_conf_min: 0.35
 publish_debug_image: true

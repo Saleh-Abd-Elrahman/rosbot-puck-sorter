@@ -44,6 +44,7 @@ class RGBDPuckDetector:
         self.morph_close_ksize = int(rospy.get_param("~morph_close_ksize", 5))
         self.morph_ksize = int(rospy.get_param("~morph_ksize", 7))
         self.depth_erode_ksize = int(rospy.get_param("~depth_erode_ksize", 5))
+        self.max_detections_per_color = int(rospy.get_param("~max_detections_per_color", 1))
         self.min_area_px = int(rospy.get_param("~min_area_px", 120))
         self.max_area_px = int(rospy.get_param("~max_area_px", 20000))
         self.circularity_min = rospy.get_param("~circularity_min", 0.60)
@@ -291,6 +292,7 @@ class RGBDPuckDetector:
         for color in ["red", "green", "blue"]:
             mask = self._hsv_mask(hsv, color)
             contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            candidates = []
             stats[color] = {
                 "contours": len(contours),
                 "area": 0,
@@ -333,7 +335,6 @@ class RGBDPuckDetector:
                 conf = min(0.99, max(0.0, 0.45 + 0.35 * circ + 0.20 * min(1.0, area / 1000.0)))
                 if conf < self.detection_conf_min:
                     continue
-                stats[color]["detections"] += 1
 
                 point_map = self._to_map(rgb_msg.header.frame_id, x_cam, y_cam, z_cam, rgb_msg.header.stamp)
                 if point_map is None:
@@ -349,6 +350,14 @@ class RGBDPuckDetector:
                 det.confidence = conf
                 det.radius_m = float(radius_px * depth_m / max(1e-6, self.fx if self.fx else 1.0))
                 det.contour_area_px = int(area)
+                candidates.append((conf, area, det, u, v, radius_px))
+
+            candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
+            if self.max_detections_per_color > 0:
+                candidates = candidates[: self.max_detections_per_color]
+            stats[color]["detections"] = len(candidates)
+
+            for _conf, _area, det, u, v, radius_px in candidates:
                 det_array.detections.append(det)
 
                 if self.publish_debug_image:
