@@ -24,6 +24,9 @@ class RGBDPuckDetector:
         self.camera_info_topic = rospy.get_param("~camera_info_topic", "/camera/color/camera_info")
         self.process_rate_hz = float(rospy.get_param("~process_rate_hz", 12.0))
         self.require_map_tf = bool(rospy.get_param("~require_map_tf", False))
+        self.allow_camera_info_fallback = bool(rospy.get_param("~allow_camera_info_fallback", True))
+        self.hfov_deg = float(rospy.get_param("~hfov_deg", 70.0))
+        self.debug_log_stats = bool(rospy.get_param("~debug_log_stats", True))
 
         self.depth_min_m = rospy.get_param("~depth_min_m", 0.15)
         self.depth_max_m = rospy.get_param("~depth_max_m", 1.80)
@@ -45,6 +48,7 @@ class RGBDPuckDetector:
         self.camera_lock = threading.Lock()
         self.fx = self.fy = self.cx = self.cy = None
         self.last_process_time = rospy.Time(0)
+        self.last_stats_log_time = rospy.Time(0)
 
         self.tf_buffer = tf2_ros.Buffer(cache_time=rospy.Duration(10.0))
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
@@ -69,14 +73,22 @@ class RGBDPuckDetector:
             self.cy = msg.K[5]
 
     def _hsv_mask(self, hsv, color_name):
+        def bounds(spec):
+            # Config format: [h_min, h_max, s_min, s_max, v_min, v_max].
+            return np.array([spec[0], spec[2], spec[4]]), np.array([spec[1], spec[3], spec[5]])
+
         if color_name == "red":
-            m1 = cv2.inRange(hsv, np.array(self.red1[0:3]), np.array(self.red1[3:6]))
-            m2 = cv2.inRange(hsv, np.array(self.red2[0:3]), np.array(self.red2[3:6]))
+            red1_low, red1_high = bounds(self.red1)
+            red2_low, red2_high = bounds(self.red2)
+            m1 = cv2.inRange(hsv, red1_low, red1_high)
+            m2 = cv2.inRange(hsv, red2_low, red2_high)
             mask = cv2.bitwise_or(m1, m2)
         elif color_name == "green":
-            mask = cv2.inRange(hsv, np.array(self.green[0:3]), np.array(self.green[3:6]))
+            low, high = bounds(self.green)
+            mask = cv2.inRange(hsv, low, high)
         else:
-            mask = cv2.inRange(hsv, np.array(self.blue[0:3]), np.array(self.blue[3:6]))
+            low, high = bounds(self.blue)
+            mask = cv2.inRange(hsv, low, high)
 
         if self.median_blur_ksize >= 3 and self.median_blur_ksize % 2 == 1:
             mask = cv2.medianBlur(mask, self.median_blur_ksize)
@@ -109,14 +121,23 @@ class RGBDPuckDetector:
             return None
         return float(np.median(patch))
 
-    def _pixel_to_camera(self, u, v, depth_m):
+    def _pixel_to_camera(self, u, v, depth_m, image_w, image_h):
         with self.camera_lock:
-            if any(v is None for v in [self.fx, self.fy, self.cx, self.cy]):
+            fx, fy, cx, cy = self.fx, self.fy, self.cx, self.cy
+        if any(value is None for value in [fx, fy, cx, cy]):
+            if not self.allow_camera_info_fallback:
                 return None
-            x = (u - self.cx) * depth_m / self.fx
-            y = (v - self.cy) * depth_m / self.fy
-            z = depth_m
-            return x, y, z
+            hfov_rad = math.radians(self.hfov_deg)
+            fx = (float(image_w) / 2.0) / max(1e-6, math.tan(hfov_rad / 2.0))
+            fy = fx
+            cx = float(image_w) / 2.0
+            cy = float(image_h) / 2.0
+        if fx <= 0.0 or fy <= 0.0:
+            return None
+        x = (u - cx) * depth_m / fx
+        y = (v - cy) * depth_m / fy
+        z = depth_m
+        return x, y, z
 
     def _to_map(self, cam_frame, x, y, z, stamp):
         if cam_frame == self.map_frame:
@@ -166,19 +187,30 @@ class RGBDPuckDetector:
         det_array.header = rgb_msg.header
 
         debug = roi.copy()
+        stats = {}
 
         for color in ["red", "green", "blue"]:
             mask = self._hsv_mask(hsv, color)
             contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            stats[color] = {
+                "contours": len(contours),
+                "area": 0,
+                "circular": 0,
+                "depth": 0,
+                "camera": 0,
+                "detections": 0,
+            }
 
             for contour in contours:
                 area = cv2.contourArea(contour)
                 if area < self.min_area_px or area > self.max_area_px:
                     continue
+                stats[color]["area"] += 1
 
                 circ = self._contour_circularity(contour)
                 if circ < self.circularity_min:
                     continue
+                stats[color]["circular"] += 1
 
                 (u_f, v_f), radius_px = cv2.minEnclosingCircle(contour)
                 u = int(u_f)
@@ -189,15 +221,18 @@ class RGBDPuckDetector:
                     continue
                 if depth_m < self.depth_min_m or depth_m > self.depth_max_m:
                     continue
+                stats[color]["depth"] += 1
 
-                xyz = self._pixel_to_camera(u, v, depth_m)
+                xyz = self._pixel_to_camera(u, v, depth_m, w, h)
                 if xyz is None:
                     continue
+                stats[color]["camera"] += 1
                 x_cam, y_cam, z_cam = xyz
 
                 conf = min(0.99, max(0.0, 0.45 + 0.35 * circ + 0.20 * min(1.0, area / 1000.0)))
                 if conf < self.detection_conf_min:
                     continue
+                stats[color]["detections"] += 1
 
                 point_map = self._to_map(rgb_msg.header.frame_id, x_cam, y_cam, z_cam, rgb_msg.header.stamp)
                 if point_map is None:
@@ -229,11 +264,36 @@ class RGBDPuckDetector:
                     )
 
         self.pub_detections.publish(det_array)
+        self._log_stats(stats, len(det_array.detections))
 
         if self.publish_debug_image and self.pub_debug.get_num_connections() > 0:
             dbg_msg = self.bridge.cv2_to_imgmsg(debug, encoding="bgr8")
             dbg_msg.header = rgb_msg.header
             self.pub_debug.publish(dbg_msg)
+
+    def _log_stats(self, stats, detections):
+        if not self.debug_log_stats:
+            return
+        now = rospy.Time.now()
+        if self.last_stats_log_time != rospy.Time(0) and (now - self.last_stats_log_time).to_sec() < 2.0:
+            return
+        self.last_stats_log_time = now
+        parts = []
+        for color in ["red", "green", "blue"]:
+            s = stats.get(color, {})
+            parts.append(
+                "%s c=%d area=%d circ=%d depth=%d cam=%d det=%d"
+                % (
+                    color,
+                    s.get("contours", 0),
+                    s.get("area", 0),
+                    s.get("circular", 0),
+                    s.get("depth", 0),
+                    s.get("camera", 0),
+                    s.get("detections", 0),
+                )
+            )
+        rospy.loginfo("puck detector stats: total=%d | %s", detections, " | ".join(parts))
 
 
 def main():

@@ -19,7 +19,7 @@ hfov_deg: 70.0
 min_aruco_perimeter_px: 70.0
 marker_stale_s: 0.5
 puck_stale_s: 0.5
-puck_conf_min: 0.45
+puck_conf_min: 0.35
 
 control_rate_hz: 20.0
 search_angular_speed_rad_s: 0.35

@@ -1,8 +1,8 @@
 <launch>
   <arg name="enable_gripper_controller" default="true" />
 
-  <rosparam command="load" file="$(find rosbot_puck_sorter)/config/puck_color_hsv.yaml" ns="rgbd_puck_detector" />
   <rosparam command="load" file="$(find rosbot_puck_sorter)/config/rgbd_puck_detector.yaml" ns="rgbd_puck_detector" />
+  <rosparam command="load" file="$(find rosbot_puck_sorter)/config/puck_color_hsv.yaml" ns="rgbd_puck_detector" />
   <rosparam command="load" file="$(find rosbot_puck_sorter)/config/gripper.yaml" ns="gripper_controller" />
   <rosparam command="load" file="$(find rosbot_puck_sorter)/config/challenge_manager.yaml" ns="challenge_manager" />
 
