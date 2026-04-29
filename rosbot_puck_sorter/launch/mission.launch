@@ -1,5 +1,3 @@
 <launch>
-  <!-- Direct copy of the lab reference behavior:
-       red puck -> ArUco ID 1, using /cmd_vel, /servo, and /camera/color/image_2fps/compressed. -->
-  <node pkg="rosbot_puck_sorter" type="grab_and_deliver.py" name="grab_and_deliver" output="screen" />
+  <node pkg="rosbot_puck_sorter" type="simple_challenge.py" name="simple_challenge" output="screen" />
 </launch>

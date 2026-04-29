@@ -2,7 +2,7 @@
 <package format="2">
   <name>rosbot_puck_sorter</name>
   <version>0.1.0</version>
-  <description>ROS 1 package wrapping the lab reference puck scripts.</description>
+  <description>Minimal ROSbot puck sorting challenge node.</description>
 
   <maintainer email="you@example.com">salehabdelrahman</maintainer>
   <license>MIT</license>
@@ -13,13 +13,11 @@
   <build_depend>std_msgs</build_depend>
   <build_depend>geometry_msgs</build_depend>
   <build_depend>sensor_msgs</build_depend>
-  <build_depend>cv_bridge</build_depend>
 
   <exec_depend>rospy</exec_depend>
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
-  <exec_depend>cv_bridge</exec_depend>
   <exec_depend>rosserial_python</exec_depend>
 
   <export/>

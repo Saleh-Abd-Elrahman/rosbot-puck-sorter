@@ -1,41 +1,37 @@
-# ROSbot Lab Reference Scripts
+# ROSbot Puck Sorter
 
-This repo now runs the copied code from:
+This repo has been reset to the simplest challenge runner possible.
 
-- `/Users/salehabdelrahman/Downloads/robotics-lab-final-master.zip`
+Active behavior:
 
-The active launch runs:
+- red puck -> ArUco marker ID 1
+- green puck -> ArUco marker ID 2
+- blue puck -> ArUco marker ID 3
+- camera: `/camera/color/image_2fps/compressed`
+- base command: `/cmd_vel`
+- gripper command: `/servo`
+- optional front safety from `/scan`
 
-- `rosbot_puck_sorter/scripts/grab_and_deliver.py`
+There is one ROS node:
 
-That script is the lab reference behavior:
-
-- find a red puck on `/camera/color/image_2fps/compressed`
-- drive using `/cmd_vel`
-- close/open the gripper by publishing `std_msgs/UInt16` directly to `/servo`
-- find ArUco marker ID `1`
-- drive to it and release the puck
+- `rosbot_puck_sorter/scripts/simple_challenge.py`
 
 ## Run
 
-Start your robot base, camera, and rosserial first:
+Start the robot base, camera, and gripper rosserial first:
 
 ```bash
 rosrun rosserial_python serial_node.py /dev/ttyUSB0
 ```
 
-Then run:
+Then:
 
 ```bash
+catkin_make
+source devel/setup.bash
 roslaunch rosbot_puck_sorter mission.launch
 ```
 
-## Useful Direct Tests
+## Notes
 
-```bash
-rosrun rosbot_puck_sorter detect_pucks.py
-rosrun rosbot_puck_sorter puck_debug.py
-rosrun rosbot_puck_sorter grab_red_puck.py
-rosrun rosbot_puck_sorter grab_and_deliver.py
-rosrun rosbot_puck_sorter gripper_reset.py open
-```
+The node uses simple HSV blob tracking for pucks and ArUco detection for marker IDs. It does not use AMCL, odom, maps, waypoints, custom messages, action servers, or services.
