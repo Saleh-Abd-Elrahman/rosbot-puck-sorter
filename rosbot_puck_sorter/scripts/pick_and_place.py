@@ -65,8 +65,8 @@ class PickAndPlace:
         self.k_forward = 0.25
         self.search_ang = 0.2
 
-        self.servo_open = 165
-        self.servo_close = 0
+        self.servo_open = 0
+        self.servo_close = 155
         self.force_held_threshold = 1.0
         self.grip_settle_s = 1.5
         self.lunge_s = 1.0
