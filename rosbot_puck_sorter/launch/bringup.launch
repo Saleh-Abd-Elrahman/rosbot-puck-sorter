@@ -1,33 +1,3 @@
 <launch>
-  <arg name="enable_gripper_controller" default="true" />
-  <arg name="enable_cmd_vel_dead_reckoner" default="false" />
-
-  <!-- Core shared params -->
-  <rosparam command="load" file="$(find rosbot_puck_sorter)/config/common.yaml" />
-
-  <!-- Node params -->
-  <rosparam command="load" file="$(find rosbot_puck_sorter)/config/start_frame.yaml" ns="start_frame_manager" />
-  <rosparam command="load" file="$(find rosbot_puck_sorter)/config/startup_survey.yaml" ns="startup_survey" />
-  <rosparam command="load" file="$(find rosbot_puck_sorter)/config/semantic_map.yaml" ns="semantic_grid_mapper" />
-  <rosparam command="load" file="$(find rosbot_puck_sorter)/config/qr_home_mapper.yaml" ns="qr_home_mapper" />
-  <rosparam command="load" file="$(find rosbot_puck_sorter)/config/puck_color_hsv.yaml" ns="rgbd_puck_detector" />
-  <rosparam command="load" file="$(find rosbot_puck_sorter)/config/rgbd_puck_detector.yaml" ns="rgbd_puck_detector" />
-  <rosparam command="load" file="$(find rosbot_puck_sorter)/config/puck_world_model.yaml" ns="puck_world_model" />
-  <rosparam command="load" file="$(find rosbot_puck_sorter)/config/coverage_search.yaml" ns="coverage_search" />
-  <rosparam command="load" file="$(find rosbot_puck_sorter)/config/pick_place_server.yaml" ns="pick_place_server" />
-  <rosparam command="load" file="$(find rosbot_puck_sorter)/config/fine_align_controller.yaml" ns="fine_align_controller" />
-  <rosparam command="load" file="$(find rosbot_puck_sorter)/config/gripper.yaml" ns="gripper_controller" />
-
-  <!-- Assumes camera, lidar, odometry, and base driver are launched elsewhere -->
-  <node if="$(arg enable_cmd_vel_dead_reckoner)" pkg="rosbot_puck_sorter" type="cmd_vel_dead_reckoner.py" name="cmd_vel_dead_reckoner" output="screen" />
-  <node pkg="rosbot_puck_sorter" type="start_frame_manager.py" name="start_frame_manager" output="screen" />
-  <node pkg="rosbot_puck_sorter" type="startup_survey.py" name="startup_survey" output="screen" />
-  <node pkg="rosbot_puck_sorter" type="semantic_grid_mapper.py" name="semantic_grid_mapper" output="screen" />
-  <node pkg="rosbot_puck_sorter" type="qr_home_mapper.py" name="qr_home_mapper" output="screen" />
-  <node pkg="rosbot_puck_sorter" type="rgbd_puck_detector.py" name="rgbd_puck_detector" output="screen" />
-  <node pkg="rosbot_puck_sorter" type="puck_world_model.py" name="puck_world_model" output="screen" />
-  <node pkg="rosbot_puck_sorter" type="coverage_search.py" name="coverage_search" output="screen" />
-  <node if="$(arg enable_gripper_controller)" pkg="rosbot_puck_sorter" type="gripper_controller.py" name="gripper_controller" output="screen" />
-  <node pkg="rosbot_puck_sorter" type="fine_align_controller.py" name="fine_align_controller" output="screen" />
-  <node pkg="rosbot_puck_sorter" type="pick_place_server.py" name="pick_place_server" output="screen" />
+  <include file="$(find rosbot_puck_sorter)/launch/mission.launch" />
 </launch>

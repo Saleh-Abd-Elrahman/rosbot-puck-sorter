@@ -6,82 +6,30 @@ find_package(catkin REQUIRED COMPONENTS
   std_msgs
   geometry_msgs
   sensor_msgs
-  nav_msgs
-  std_srvs
-  tf2_ros
-  tf2_geometry_msgs
   cv_bridge
-  message_filters
-  actionlib
-  actionlib_msgs
-  message_generation
 )
 
-add_message_files(
-  FILES
-  PuckDetection.msg
-  PuckDetectionArray.msg
-  PuckTrack.msg
-  PuckTrackArray.msg
-  HomeBase.msg
-  HomeBaseArray.msg
-  MissionState.msg
-)
-
-add_service_files(
-  FILES
-  ScanHomes.srv
-  SetGripper.srv
-  ReserveTarget.srv
-)
-
-add_action_files(
-  FILES
-  PickAndPlace.action
-)
-
-generate_messages(
-  DEPENDENCIES
-  std_msgs
-  geometry_msgs
-  actionlib_msgs
-)
-
-catkin_package(
-  CATKIN_DEPENDS
-    rospy
-    std_msgs
-    geometry_msgs
-    sensor_msgs
-    nav_msgs
-    std_srvs
-    tf2_ros
-    tf2_geometry_msgs
-    cv_bridge
-    message_filters
-    actionlib
-    actionlib_msgs
-    message_runtime
-)
+catkin_package()
 
 catkin_install_python(PROGRAMS
-  scripts/mission_manager.py
-  scripts/challenge_manager.py
-  scripts/cmd_vel_dead_reckoner.py
-  scripts/start_frame_manager.py
-  scripts/startup_survey.py
-  scripts/semantic_grid_mapper.py
-  scripts/qr_home_mapper.py
-  scripts/simple_pose_navigator.py
-  scripts/rgbd_puck_detector.py
-  scripts/puck_world_model.py
-  scripts/coverage_search.py
-  scripts/pick_place_server.py
-  scripts/gripper_controller.py
-  scripts/fine_align_controller.py
+  scripts/detect_pucks.py
+  scripts/detect_pucks_distance.py
+  scripts/exercise1.py
+  scripts/exercise2.py
+  scripts/follow_red_puck.py
+  scripts/grab_and_deliver.py
+  scripts/grab_red_puck.py
+  scripts/gripper_reset.py
+  scripts/ir_avoidance.py
+  scripts/jose.py
+  scripts/my_publisher.py
+  scripts/puck_debug.py
+  scripts/save_color_image.py
+  scripts/simple_camera_sub.py
+  scripts/simple_camera_sub_compressed.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
-install(DIRECTORY launch config msg srv action
+install(DIRECTORY launch
   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
 )

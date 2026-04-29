@@ -1,7 +1,0 @@
-map_frame: odom
-start_frame: start
-pose_source: odom
-amcl_topic: /amcl_pose
-odom_topic: /odom
-base_frame: base_link
-publish_rate_hz: 15.0

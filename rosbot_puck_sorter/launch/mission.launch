@@ -1,8 +1,5 @@
 <launch>
-  <arg name="enable_gripper_controller" default="true" />
-  <arg name="enable_cmd_vel_dead_reckoner" default="false" />
-
-  <include file="$(find rosbot_puck_sorter)/launch/challenge.launch" >
-    <arg name="enable_gripper_controller" value="$(arg enable_gripper_controller)" />
-  </include>
+  <!-- Direct copy of the lab reference behavior:
+       red puck -> ArUco ID 1, using /cmd_vel, /servo, and /camera/color/image_2fps/compressed. -->
+  <node pkg="rosbot_puck_sorter" type="grab_and_deliver.py" name="grab_and_deliver" output="screen" />
 </launch>

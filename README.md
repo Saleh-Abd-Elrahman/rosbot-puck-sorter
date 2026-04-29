@@ -1,82 +1,41 @@
-# ROSbot Puck Sorter (ROS 1 Noetic)
+# ROSbot Lab Reference Scripts
 
-This repository contains a ROS 1 project for a ROSbot that:
-- detects red, green, and blue pucks with an RGB-D camera
-- grabs each puck with a rosserial-controlled servo gripper
-- finds the matching ArUco marker visually (`ID 1 -> red`, `ID 2 -> green`, `ID 3 -> blue`)
-- places the puck in front of that marker inside the yellow area
-- drives only with direct `geometry_msgs/Twist` commands on `/cmd_vel`
+This repo now runs the copied code from:
 
-The ROS package is in:
-- `rosbot_puck_sorter/`
+- `/Users/salehabdelrahman/Downloads/robotics-lab-final-master.zip`
 
-## Requirements
+The active launch runs:
 
-- Ubuntu 20.04
-- ROS 1 Noetic
-- Catkin workspace
-- RGB-D camera driver
-- LiDAR `/scan` is recommended for wall safety, but the RGB-D depth image also provides front safety
-- ROSbot base driver that accepts `geometry_msgs/Twist` on `/cmd_vel`
-- Arduino Nano running `rosserial` for gripper control
-- `rosserial_python`
+- `rosbot_puck_sorter/scripts/grab_and_deliver.py`
 
-## Build
+That script is the lab reference behavior:
 
-From your catkin workspace:
-
-```bash
-cd ~/catkin_ws/src
-git clone <your-repo-url>
-cd ..
-catkin_make
-source devel/setup.bash
-```
+- find a red puck on `/camera/color/image_2fps/compressed`
+- drive using `/cmd_vel`
+- close/open the gripper by publishing `std_msgs/UInt16` directly to `/servo`
+- find ArUco marker ID `1`
+- drive to it and release the puck
 
 ## Run
 
-Launch your robot bringup first so these are already running:
-- RGB-D camera publishing the class lab topics (`/camera/color/image_2fps/compressed` and `/camera/depth/image_2fps`)
-- optional LiDAR `/scan`
-- base driver subscribed to `/cmd_vel`
-- `rosrun rosserial_python serial_node.py /dev/ttyUSB0` for the gripper Arduino
+Start your robot base, camera, and rosserial first:
 
-Then:
+```bash
+rosrun rosserial_python serial_node.py /dev/ttyUSB0
+```
+
+Then run:
 
 ```bash
 roslaunch rosbot_puck_sorter mission.launch
 ```
 
-The main launch is now reactive and no-AMCL: it does not use corner waypoints,
-coverage waypoints, `/odom`, or `/amcl_pose`.
-
-## Configuration
-
-Tune these files before first real run:
-- `rosbot_puck_sorter/config/challenge_manager.yaml` (challenge behavior, ArUco IDs, safety distances)
-- `rosbot_puck_sorter/config/puck_color_hsv.yaml` (color thresholds)
-- `rosbot_puck_sorter/config/gripper.yaml` (`rosserial` topics + gripper angles)
-
-For ArUco markers, set `aruco_dictionary` and `marker_id_to_color` in
-`rosbot_puck_sorter/config/challenge_manager.yaml`. The active marker approach
-uses the tag's apparent pixel size, matching the lab reference scripts.
-
-For the gripper:
-- upload [gripper_rosserial.ino](/Users/salehabdelrahman/Desktop/Rob_Lab_Proj/arduino/gripper_rosserial/gripper_rosserial.ino) to the Arduino Nano
-- wire the current/load sensor to Arduino `A0` for the default pickup verification
-- run `rosrun rosserial_python serial_node.py /dev/ttyUSB0`
-- keep `backend: rosserial_topic` in `rosbot_puck_sorter/config/gripper.yaml`
-
-## Tests
-
-Run module-level tests:
+## Useful Direct Tests
 
 ```bash
-cd ~/catkin_ws/src/<repo>/rosbot_puck_sorter/tests
-./run_module_tests.sh
+rosrun rosbot_puck_sorter detect_pucks.py
+rosrun rosbot_puck_sorter puck_debug.py
+rosrun rosbot_puck_sorter grab_red_puck.py
+rosrun rosbot_puck_sorter grab_and_deliver.py
+rosrun rosbot_puck_sorter gripper_reset.py open
 ```
-
-## Project docs
-
-Detailed package-level documentation (nodes, topics, services, actions) is here:
-- [rosbot_puck_sorter/README.md](rosbot_puck_sorter/README.md)
