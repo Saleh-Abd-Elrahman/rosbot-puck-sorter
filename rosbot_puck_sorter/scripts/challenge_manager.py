@@ -8,7 +8,7 @@ import numpy as np
 import rospy
 from cv_bridge import CvBridge
 from geometry_msgs.msg import Twist
-from sensor_msgs.msg import CameraInfo, Image, LaserScan
+from sensor_msgs.msg import CameraInfo, CompressedImage, Image, LaserScan
 from std_msgs.msg import Bool
 
 from rosbot_puck_sorter.msg import MissionState, PuckDetectionArray
@@ -23,6 +23,7 @@ class MarkerObservation:
     z: float
     stamp: rospy.Time
     distance_m: float
+    size_px: float
 
 
 def clamp(value, lo, hi):
@@ -37,6 +38,7 @@ class ChallengeManager:
         self.cmd_topic = rospy.get_param("~cmd_topic", "/cmd_vel")
         self.scan_topic = rospy.get_param("~scan_topic", "/scan")
         self.image_topic = rospy.get_param("~image_topic", "/camera/color/image_raw")
+        self.image_is_compressed = bool(rospy.get_param("~image_is_compressed", self.image_topic.endswith("/compressed")))
         self.camera_info_topic = rospy.get_param("~camera_info_topic", "/camera/color/camera_info")
         self.depth_topic = rospy.get_param("~depth_topic", "/camera/aligned_depth_to_color/image_raw")
         self.gripper_service = rospy.get_param("~gripper_service", "/gripper/set")
@@ -64,8 +66,19 @@ class ChallengeManager:
         self.depth_deadband_m = float(rospy.get_param("~depth_deadband_m", 0.025))
         self.align_hold_s = float(rospy.get_param("~align_hold_s", 0.25))
 
+        self.gripper_aim_offset_px = float(rospy.get_param("~gripper_aim_offset_px", 50.0))
         self.pickup_target_depth_m = float(rospy.get_param("~pickup_target_depth_m", 0.24))
+        self.approach_base_speed = float(rospy.get_param("~approach_base_speed_m_s", 0.04))
+        self.pickup_commit_enabled = bool(rospy.get_param("~pickup_commit_enabled", True))
+        self.pickup_commit_radius_px = float(rospy.get_param("~pickup_commit_radius_px", 45.0))
+        self.pickup_commit_lost_min_radius_px = float(rospy.get_param("~pickup_commit_lost_min_radius_px", 38.0))
+        self.pickup_commit_speed = float(rospy.get_param("~pickup_commit_speed_m_s", 0.08))
+        self.pickup_commit_time_s = float(rospy.get_param("~pickup_commit_time_s", 0.8))
         self.marker_place_distance_m = float(rospy.get_param("~marker_place_distance_m", 0.45))
+        self.marker_place_target_size_px = float(rospy.get_param("~marker_place_target_size_px", 180.0))
+        self.marker_size_deadband_px = float(rospy.get_param("~marker_size_deadband_px", 10.0))
+        self.marker_approach_base_speed = float(rospy.get_param("~marker_approach_base_speed_m_s", 0.06))
+        self.marker_kp_size = float(rospy.get_param("~marker_kp_size", 0.002))
         self.search_timeout_s = float(rospy.get_param("~search_timeout_s", 25.0))
         self.approach_timeout_s = float(rospy.get_param("~approach_timeout_s", 12.0))
         self.place_search_timeout_s = float(rospy.get_param("~place_search_timeout_s", 60.0))
@@ -103,6 +116,8 @@ class ChallengeManager:
         self.front_depth_m = None
         self.front_depth_stamp = rospy.Time(0)
         self.fx = self.fy = self.cx = self.cy = None
+        self.image_width = None
+        self.image_height = None
 
         self.delivered = set()
         self.active_color = ""
@@ -118,7 +133,8 @@ class ChallengeManager:
         self.pub_state = rospy.Publisher("/mission/state", MissionState, queue_size=10, latch=True)
 
         rospy.Subscriber("/puck/detections", PuckDetectionArray, self._pucks_cb, queue_size=10)
-        rospy.Subscriber(self.image_topic, Image, self._image_cb, queue_size=1)
+        image_msg_type = CompressedImage if self.image_is_compressed else Image
+        rospy.Subscriber(self.image_topic, image_msg_type, self._image_cb, queue_size=1)
         rospy.Subscriber(self.camera_info_topic, CameraInfo, self._camera_info_cb, queue_size=1)
         rospy.Subscriber(self.depth_topic, Image, self._depth_cb, queue_size=1)
         rospy.Subscriber(self.scan_topic, LaserScan, self._scan_cb, queue_size=1)
@@ -128,7 +144,7 @@ class ChallengeManager:
         self.gripper_srv = rospy.ServiceProxy(self.gripper_service, SetGripper)
 
         rospy.on_shutdown(self._stop)
-        rospy.loginfo("challenge_manager ready: reactive no-AMCL sorter")
+        rospy.loginfo("challenge_manager ready: reactive no-AMCL sorter (image_topic=%s compressed=%s)", self.image_topic, self.image_is_compressed)
 
     @staticmethod
     def _normalize_color(color):
@@ -237,6 +253,15 @@ class ChallengeManager:
             self.front_depth_m = depth_m
             self.front_depth_stamp = rospy.Time.now()
 
+    def _bgr_from_msg(self, msg):
+        if isinstance(msg, CompressedImage):
+            arr = np.frombuffer(msg.data, dtype=np.uint8)
+            frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+            if frame is None:
+                raise ValueError("compressed image decode returned None")
+            return frame
+        return self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+
     def _camera_matrix(self, width, height):
         with self.lock:
             fx, fy, cx, cy = self.fx, self.fy, self.cx, self.cy
@@ -269,9 +294,13 @@ class ChallengeManager:
         if self.aruco_dict is None:
             return
         try:
-            frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+            frame = self._bgr_from_msg(msg)
         except Exception:
             return
+        h, w = frame.shape[:2]
+        with self.lock:
+            self.image_width = w
+            self.image_height = h
 
         if self.aruco_detector is not None:
             corners, ids, _rejected = self.aruco_detector.detectMarkers(frame)
@@ -283,7 +312,6 @@ class ChallengeManager:
                 self.latest_marker_stamp = rospy.Time.now()
             return
 
-        h, w = frame.shape[:2]
         camera_matrix = self._camera_matrix(w, h)
         dist_coeffs = np.zeros((5, 1), dtype=np.float32)
         now = rospy.Time.now()
@@ -294,7 +322,10 @@ class ChallengeManager:
             color = self.marker_id_to_color.get(marker_id, "")
             if not color:
                 continue
-            if cv2.arcLength(marker_corners.astype(np.float32), True) < self.min_aruco_perimeter_px:
+            pts = marker_corners.reshape(-1, 2).astype(np.float32)
+            sides = [np.linalg.norm(pts[j] - pts[(j + 1) % 4]) for j in range(4)]
+            side_px = float(max(sides))
+            if cv2.arcLength(pts.reshape(-1, 1, 2), True) < self.min_aruco_perimeter_px:
                 continue
             tvec = self._estimate_marker_tvec(marker_corners, camera_matrix, dist_coeffs)
             if tvec is None:
@@ -303,7 +334,7 @@ class ChallengeManager:
             z = float(tvec[2])
             if z <= 0.0:
                 continue
-            obs = MarkerObservation(marker_id=marker_id, color=color, x=x, z=z, stamp=now, distance_m=float(np.linalg.norm(tvec)))
+            obs = MarkerObservation(marker_id=marker_id, color=color, x=x, z=z, stamp=now, distance_m=float(np.linalg.norm(tvec)), size_px=side_px)
             prev = markers.get(color)
             if prev is None or obs.z < prev.z:
                 markers[color] = obs
@@ -370,6 +401,21 @@ class ChallengeManager:
         cmd.angular.z = clamp(angular_z, -self.max_angular_speed, self.max_angular_speed)
         self.pub_cmd.publish(cmd)
 
+    def _aim_lateral_m(self, depth_m):
+        if abs(self.gripper_aim_offset_px) < 1e-6:
+            return 0.0
+        with self.lock:
+            fx = self.fx
+            image_width = self.image_width
+        if not fx or fx <= 0.0:
+            image_width = image_width or 640
+            hfov = math.radians(self.hfov_deg)
+            fx = (float(image_width) / 2.0) / max(1e-6, math.tan(hfov / 2.0))
+        return self.gripper_aim_offset_px * depth_m / fx
+
+    def _lateral_error(self, observed_x_m, depth_m):
+        return observed_x_m - self._aim_lateral_m(depth_m)
+
     def _retreat(self, duration_s):
         rate = rospy.Rate(self.control_rate_hz)
         end = rospy.Time.now() + rospy.Duration(max(0.0, duration_s))
@@ -377,6 +423,15 @@ class ChallengeManager:
             self._cmd(-abs(self.retreat_speed), 0.0)
             rate.sleep()
         self._stop()
+
+    def _commit_pickup(self):
+        rate = rospy.Rate(self.control_rate_hz)
+        end = rospy.Time.now() + rospy.Duration(max(0.0, self.pickup_commit_time_s))
+        while not rospy.is_shutdown() and rospy.Time.now() < end:
+            self._cmd(abs(self.pickup_commit_speed), 0.0)
+            rate.sleep()
+        self._stop()
+        return True
 
     def _select_puck(self, color):
         now = rospy.Time.now()
@@ -427,14 +482,23 @@ class ChallengeManager:
         rate = rospy.Rate(self.control_rate_hz)
         start = rospy.Time.now()
         stable_since = None
+        last_radius_px = 0.0
         while not rospy.is_shutdown() and (rospy.Time.now() - start).to_sec() <= self.approach_timeout_s:
             det = self._select_puck(color)
             if det is None:
+                if self.pickup_commit_enabled and last_radius_px >= self.pickup_commit_lost_min_radius_px:
+                    return self._commit_pickup()
                 self._stop()
                 return False
 
-            lateral = det.position_camera.x
+            radius_px = math.sqrt(max(0.0, float(det.contour_area_px)) / math.pi)
+            if radius_px > 0.0:
+                last_radius_px = radius_px
+            if self.pickup_commit_enabled and radius_px >= self.pickup_commit_radius_px:
+                return self._commit_pickup()
+
             depth = det.position_camera.z
+            lateral = self._lateral_error(det.position_camera.x, depth)
             depth_err = depth - self.pickup_target_depth_m
             aligned = abs(lateral) <= self.lateral_deadband_m and abs(depth_err) <= self.depth_deadband_m
             if aligned:
@@ -447,7 +511,13 @@ class ChallengeManager:
                 stable_since = None
 
             angular = -self.kp_yaw * lateral
-            linear = self.kp_depth * depth_err if abs(lateral) < 0.12 else 0.0
+            if self.pickup_commit_enabled and radius_px > 0.0:
+                radius_err = self.pickup_commit_radius_px - radius_px
+                linear = self.approach_base_speed + 0.003 * radius_err
+            else:
+                linear = self.kp_depth * depth_err
+            if abs(lateral) >= 0.12:
+                linear = 0.0
             if linear < 0.0:
                 linear = 0.0
             self._cmd(linear, angular)
@@ -465,10 +535,14 @@ class ChallengeManager:
                 self._stop()
                 return False
 
-            lateral = marker.x
             depth = marker.z
+            lateral = self._lateral_error(marker.x, depth)
             depth_err = depth - self.marker_place_distance_m
-            aligned = abs(lateral) <= self.lateral_deadband_m and abs(depth_err) <= self.depth_deadband_m
+            size_err = self.marker_place_target_size_px - marker.size_px
+            if self.marker_place_target_size_px > 0.0:
+                aligned = abs(lateral) <= self.lateral_deadband_m and abs(size_err) <= self.marker_size_deadband_px
+            else:
+                aligned = abs(lateral) <= self.lateral_deadband_m and abs(depth_err) <= self.depth_deadband_m
             if aligned:
                 if stable_since is None:
                     stable_since = rospy.Time.now()
@@ -479,7 +553,12 @@ class ChallengeManager:
                 stable_since = None
 
             angular = -self.kp_yaw * lateral
-            linear = self.kp_depth * depth_err if abs(lateral) < 0.15 else 0.0
+            if self.marker_place_target_size_px > 0.0:
+                linear = self.marker_approach_base_speed + self.marker_kp_size * size_err
+            else:
+                linear = self.kp_depth * depth_err
+            if abs(lateral) >= 0.15:
+                linear = 0.0
             if linear < 0.0:
                 linear = 0.0
             self._cmd(linear, angular)

@@ -1,6 +1,7 @@
 cmd_topic: /cmd_vel
 scan_topic: /scan
-image_topic: /camera/color/image_2fps
+image_topic: /camera/color/image_2fps/compressed
+image_is_compressed: true
 camera_info_topic: /camera/color/camera_info
 depth_topic: /camera/depth/image_2fps
 gripper_service: /gripper/set
@@ -17,8 +18,8 @@ marker_size_m: 0.05
 use_camera_info_intrinsics: true
 hfov_deg: 70.0
 min_aruco_perimeter_px: 70.0
-marker_stale_s: 0.5
-puck_stale_s: 0.5
+marker_stale_s: 1.5
+puck_stale_s: 1.5
 puck_conf_min: 0.35
 
 control_rate_hz: 20.0
@@ -31,8 +32,19 @@ lateral_deadband_m: 0.025
 depth_deadband_m: 0.025
 align_hold_s: 0.25
 
+gripper_aim_offset_px: 50.0
 pickup_target_depth_m: 0.24
+approach_base_speed_m_s: 0.06
+pickup_commit_enabled: true
+pickup_commit_radius_px: 45.0
+pickup_commit_lost_min_radius_px: 38.0
+pickup_commit_speed_m_s: 0.08
+pickup_commit_time_s: 0.8
 marker_place_distance_m: 0.45
+marker_place_target_size_px: 180.0
+marker_size_deadband_px: 10.0
+marker_approach_base_speed_m_s: 0.06
+marker_kp_size: 0.002
 search_timeout_s: 25.0
 approach_timeout_s: 12.0
 place_search_timeout_s: 60.0

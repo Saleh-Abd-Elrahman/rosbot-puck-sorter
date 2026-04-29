@@ -1,5 +1,6 @@
 map_frame: odom
-image_topic: /camera/color/image_2fps
+image_topic: /camera/color/image_2fps/compressed
+image_is_compressed: true
 depth_topic: /camera/depth/image_2fps
 camera_info_topic: /camera/color/camera_info
 process_rate_hz: 12.0
@@ -10,11 +11,13 @@ debug_log_stats: true
 depth_min_m: 0.15
 depth_max_m: 1.80
 roi_bottom_crop: 0.0
-median_blur_ksize: 5
+median_blur_ksize: 0
+morph_ksize: 7
+depth_erode_ksize: 5
 morph_open_ksize: 3
 morph_close_ksize: 5
-min_area_px: 60
+min_area_px: 300
 max_area_px: 20000
-circularity_min: 0.35
+circularity_min: 0.0
 detection_conf_min: 0.35
 publish_debug_image: true

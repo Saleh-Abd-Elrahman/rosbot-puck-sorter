@@ -64,7 +64,7 @@ Legacy nodes can also expose:
 ## External stack expected
 
 Launch these separately (robot-specific):
-- camera driver publishing the class lab topics (`/camera/color/image_2fps` and `/camera/depth/image_2fps`)
+- camera driver publishing the class lab topics (`/camera/color/image_2fps/compressed` and `/camera/depth/image_2fps`)
 - LiDAR `/scan` if available; depth image safety is also used
 - base motor driver (subscribes to `/cmd_vel`)
 - Arduino Nano gripper firmware from [gripper_rosserial.ino](/Users/salehabdelrahman/Desktop/Rob_Lab_Proj/arduino/gripper_rosserial/gripper_rosserial.ino)
@@ -108,8 +108,8 @@ It does not start the old home-scan, coverage, world-model, or pick/place action
   - `"2": green`
   - `"3": blue`
 - Set `aruco_dictionary` to your marker family, for example `DICT_4X4_50`.
-- Set `marker_size_m` to the real printed marker side length in meters (for distance estimation).
-- Distance uses camera intrinsics from `camera_info_topic` by default.
+- The active approach uses `marker_place_target_size_px`, like the lab reference code, so it can work even when metric marker distance is not perfectly calibrated.
+- `marker_size_m` and camera intrinsics are still used for marker pose estimates and diagnostics.
 
 ## Gripper Setup (Professor `rosserial` workflow)
 
@@ -147,10 +147,10 @@ rostopic echo /servoLoad
 `challenge_manager.py` runs one color at a time:
 
 1. Rotate in place until a not-yet-delivered puck color is visible.
-2. Use the puck's camera-frame `x` and depth to center and approach it.
-3. Close the gripper through `/gripper/set`.
+2. Aim the puck at the configured gripper pixel offset and approach using the same HSV contour/depth style as the lab scripts.
+3. If the puck becomes too close to keep seeing, perform a short open-loop pickup commit, then close the gripper through `/gripper/set`.
 4. Rotate in place until the matching ArUco marker is visible.
-5. Approach the marker to `marker_place_distance_m`.
+5. Approach the marker until its apparent size reaches `marker_place_target_size_px`.
 6. Open the gripper and retreat.
 
 It does not need pre-known home poses. A home is the matching ArUco marker currently visible in the camera.
@@ -158,8 +158,8 @@ It does not need pre-known home poses. A home is the matching ArUco marker curre
 ## Tuning checklist
 
 1. Tune HSV thresholds in `config/puck_color_hsv.yaml` under your actual lighting.
-2. Set `marker_size_m`, `aruco_dictionary`, and `marker_id_to_color` in `config/challenge_manager.yaml`.
-3. Tune `pickup_target_depth_m` and `marker_place_distance_m` in `config/challenge_manager.yaml`.
+2. Set `aruco_dictionary` and `marker_id_to_color` in `config/challenge_manager.yaml`.
+3. Tune `gripper_aim_offset_px`, `pickup_commit_radius_px`, and `marker_place_target_size_px` in `config/challenge_manager.yaml`.
 4. Keep `front_stop_distance_m` conservative until wall safety is proven.
 5. Set `config/gripper.yaml` for the `rosserial` topics and calibrate `open_angle_deg` / `close_angle_deg`.
 6. Verify the ROSbot base driver is subscribed to `/cmd_vel`.

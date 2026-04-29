@@ -9,7 +9,7 @@ import rospy
 import tf2_ros
 from cv_bridge import CvBridge
 from geometry_msgs.msg import Point, PointStamped
-from sensor_msgs.msg import CameraInfo, Image
+from sensor_msgs.msg import CameraInfo, CompressedImage, Image
 
 from rosbot_puck_sorter.msg import PuckDetection, PuckDetectionArray
 
@@ -20,6 +20,7 @@ class RGBDPuckDetector:
 
         self.map_frame = rospy.get_param("~map_frame", "map")
         self.image_topic = rospy.get_param("~image_topic", "/camera/color/image_raw")
+        self.image_is_compressed = bool(rospy.get_param("~image_is_compressed", self.image_topic.endswith("/compressed")))
         self.depth_topic = rospy.get_param("~depth_topic", "/camera/aligned_depth_to_color/image_raw")
         self.camera_info_topic = rospy.get_param("~camera_info_topic", "/camera/color/camera_info")
         self.process_rate_hz = float(rospy.get_param("~process_rate_hz", 12.0))
@@ -34,6 +35,8 @@ class RGBDPuckDetector:
         self.median_blur_ksize = int(rospy.get_param("~median_blur_ksize", 5))
         self.morph_open_ksize = int(rospy.get_param("~morph_open_ksize", 3))
         self.morph_close_ksize = int(rospy.get_param("~morph_close_ksize", 5))
+        self.morph_ksize = int(rospy.get_param("~morph_ksize", 7))
+        self.depth_erode_ksize = int(rospy.get_param("~depth_erode_ksize", 5))
         self.min_area_px = int(rospy.get_param("~min_area_px", 120))
         self.max_area_px = int(rospy.get_param("~max_area_px", 20000))
         self.circularity_min = rospy.get_param("~circularity_min", 0.60)
@@ -58,12 +61,13 @@ class RGBDPuckDetector:
 
         self.sub_info = rospy.Subscriber(self.camera_info_topic, CameraInfo, self._camera_info_cb, queue_size=1)
 
-        rgb_sub = message_filters.Subscriber(self.image_topic, Image)
+        rgb_msg_type = CompressedImage if self.image_is_compressed else Image
+        rgb_sub = message_filters.Subscriber(self.image_topic, rgb_msg_type)
         depth_sub = message_filters.Subscriber(self.depth_topic, Image)
-        self.sync = message_filters.ApproximateTimeSynchronizer([rgb_sub, depth_sub], queue_size=5, slop=0.1)
+        self.sync = message_filters.ApproximateTimeSynchronizer([rgb_sub, depth_sub], queue_size=5, slop=0.5)
         self.sync.registerCallback(self._rgbd_cb)
 
-        rospy.loginfo("rgbd_puck_detector ready")
+        rospy.loginfo("rgbd_puck_detector ready (image_topic=%s compressed=%s)", self.image_topic, self.image_is_compressed)
 
     def _camera_info_cb(self, msg):
         with self.camera_lock:
@@ -93,8 +97,12 @@ class RGBDPuckDetector:
         if self.median_blur_ksize >= 3 and self.median_blur_ksize % 2 == 1:
             mask = cv2.medianBlur(mask, self.median_blur_ksize)
 
-        kernel_open = np.ones((self.morph_open_ksize, self.morph_open_ksize), np.uint8)
-        kernel_close = np.ones((self.morph_close_ksize, self.morph_close_ksize), np.uint8)
+        if self.morph_ksize >= 3:
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (self.morph_ksize, self.morph_ksize))
+            kernel_open = kernel_close = kernel
+        else:
+            kernel_open = np.ones((self.morph_open_ksize, self.morph_open_ksize), np.uint8)
+            kernel_close = np.ones((self.morph_close_ksize, self.morph_close_ksize), np.uint8)
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel_open)
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel_close)
         return mask
@@ -120,6 +128,28 @@ class RGBDPuckDetector:
         if patch.size == 0:
             return None
         return float(np.median(patch))
+
+    def _depth_from_contour(self, depth_img, contour, image_shape):
+        mask = np.zeros(image_shape[:2], dtype=np.uint8)
+        cv2.drawContours(mask, [contour], -1, 255, thickness=cv2.FILLED)
+        if self.depth_erode_ksize >= 3:
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (self.depth_erode_ksize, self.depth_erode_ksize))
+            mask = cv2.erode(mask, kernel, iterations=1)
+        values = depth_img[mask > 0].astype(np.float32)
+        values = values[np.isfinite(values)]
+        values = values[values > 0.0]
+        if values.size == 0:
+            return None
+        return float(np.median(values))
+
+    def _bgr_from_msg(self, msg):
+        if isinstance(msg, CompressedImage):
+            arr = np.frombuffer(msg.data, dtype=np.uint8)
+            frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+            if frame is None:
+                raise ValueError("compressed image decode returned None")
+            return frame
+        return self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
 
     def _pixel_to_camera(self, u, v, depth_m, image_w, image_h):
         with self.camera_lock:
@@ -165,7 +195,7 @@ class RGBDPuckDetector:
             self.last_process_time = now
 
         try:
-            bgr = self.bridge.imgmsg_to_cv2(rgb_msg, desired_encoding="bgr8")
+            bgr = self._bgr_from_msg(rgb_msg)
             depth = self.bridge.imgmsg_to_cv2(depth_msg, desired_encoding="passthrough")
         except Exception as exc:
             rospy.logwarn_throttle(2.0, "cv_bridge conversion failed: %s", exc)
@@ -178,8 +208,11 @@ class RGBDPuckDetector:
                 depth = depth.astype(np.float32)
 
         h, w = bgr.shape[:2]
+        if depth.shape[:2] != bgr.shape[:2]:
+            depth = cv2.resize(depth, (w, h), interpolation=cv2.INTER_NEAREST)
         roi_h = int(h * (1.0 - self.roi_bottom_crop))
         roi = bgr[0:roi_h, :]
+        depth_roi = depth[0:roi_h, :]
 
         hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
 
@@ -216,7 +249,9 @@ class RGBDPuckDetector:
                 u = int(u_f)
                 v = int(v_f)
 
-                depth_m = self._median_patch(depth, u, v, size=5)
+                depth_m = self._depth_from_contour(depth_roi, contour, roi.shape)
+                if depth_m is None:
+                    depth_m = self._median_patch(depth_roi, u, v, size=5)
                 if depth_m is None:
                     continue
                 if depth_m < self.depth_min_m or depth_m > self.depth_max_m:

@@ -36,7 +36,7 @@ source devel/setup.bash
 ## Run
 
 Launch your robot bringup first so these are already running:
-- RGB-D camera publishing the class lab topics (`/camera/color/image_2fps` and `/camera/depth/image_2fps`)
+- RGB-D camera publishing the class lab topics (`/camera/color/image_2fps/compressed` and `/camera/depth/image_2fps`)
 - optional LiDAR `/scan`
 - base driver subscribed to `/cmd_vel`
 - `rosrun rosserial_python serial_node.py /dev/ttyUSB0` for the gripper Arduino
@@ -57,8 +57,9 @@ Tune these files before first real run:
 - `rosbot_puck_sorter/config/puck_color_hsv.yaml` (color thresholds)
 - `rosbot_puck_sorter/config/gripper.yaml` (`rosserial` topics + gripper angles)
 
-For ArUco markers, set `aruco_dictionary`, `marker_size_m`, and
-`marker_id_to_color` in `rosbot_puck_sorter/config/challenge_manager.yaml`.
+For ArUco markers, set `aruco_dictionary` and `marker_id_to_color` in
+`rosbot_puck_sorter/config/challenge_manager.yaml`. The active marker approach
+uses the tag's apparent pixel size, matching the lab reference scripts.
 
 For the gripper:
 - upload [gripper_rosserial.ino](/Users/salehabdelrahman/Desktop/Rob_Lab_Proj/arduino/gripper_rosserial/gripper_rosserial.ino) to the Arduino Nano
